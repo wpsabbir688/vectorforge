@@ -9,8 +9,10 @@ Built with Vite + React 19 + JSX, Tailwind v4, zustand, and lucide-react. The
 rendering engine is pure custom SVG (no fabric.js, no konva), which gives exact
 pen/bezier fidelity and native SVG export.
 
-**Live demo:** not deployed yet — run it locally (see below) or deploy the
-`dist/` folder to any static host (deployment notes at the bottom).
+🌐 **Live demo:** https://delicate-kheer-1bc786.netlify.app
+
+Run it locally (see below) or deploy the `dist/` folder to any static host
+(deployment notes at the bottom).
 
 ## Features
 
