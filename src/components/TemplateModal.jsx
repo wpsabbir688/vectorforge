@@ -8,7 +8,7 @@ export default function TemplateModal({ onClose }) {
   const newDocument = useStore((s) => s.newDocument);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
-      <div className="w-full max-w-2xl rounded-2xl bg-[#252525] p-5 text-gray-100 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-[#252525] p-5 text-gray-100 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">{tr(language, 'tplTitle')}</h2>
           <button onClick={onClose} className="rounded p-1 hover:bg-[#3a3a3a]"><X size={18} /></button>

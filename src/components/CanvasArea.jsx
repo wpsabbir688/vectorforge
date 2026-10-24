@@ -217,6 +217,23 @@ export default function CanvasArea({ onImageDrop }) {
 
   const svgRef = useRef(null);
   const containerRef = useRef(null);
+  const setViewport = useStore((s) => s.setViewport);
+  // Report the canvas container size so zoom-to-selection can fit boxes
+  // against the real viewport (ResizeObserver with a window-resize
+  // fallback, mirroring the Phase 1 ruler pattern).
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return undefined;
+    const update = () => setViewport({ w: el.clientWidth, h: el.clientHeight });
+    update();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', update);
+      return () => window.removeEventListener('resize', update);
+    }
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [setViewport]);
   const sessionRef = useRef(null);
   const pointersRef = useRef(new Map()); // active pointers, for pinch gestures
   const pinchRef = useRef(null); // { d0, mid0, zoom0, pan0 } while pinching
@@ -930,7 +947,7 @@ export default function CanvasArea({ onImageDrop }) {
     <div
       ref={containerRef}
       data-tour="canvas"
-      className="relative min-h-[55vh] flex-1 overflow-hidden bg-[#1e1e1e] lg:min-h-0"
+      className="relative min-h-0 flex-1 overflow-hidden bg-[#1e1e1e]"
       onDragOver={(e) => { e.preventDefault(); setDropActive(true); }}
       onDragLeave={() => setDropActive(false)}
       onDrop={(e) => {

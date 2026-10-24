@@ -51,6 +51,8 @@ const SECTIONS = [
     titleKey: 'helpApp',
     rows: [
       ['?', 'helpShowHelp'],
+      ['Ctrl/Cmd + K', 'helpPalette'],
+      ['F', 'helpZoomSelection'],
       ['Ctrl/Cmd + V', 'helpPasteSvg'],
     ],
   },
@@ -77,7 +79,7 @@ export default function ShortcutHelpModal({ onClose }) {
       onClick={onClose}
     >
       <div
-        className="max-h-[85vh] w-[520px] max-w-[92vw] overflow-y-auto rounded-2xl border border-[#444] bg-[#252525] p-5 text-gray-100 shadow-2xl"
+        className="max-h-[90dvh] w-[520px] max-w-[92vw] overflow-y-auto rounded-2xl border border-[#444] bg-[#252525] p-5 text-gray-100 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label={t(language, 'helpTitle')}

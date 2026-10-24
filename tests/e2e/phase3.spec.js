@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { clickTopBarText } from './helpers.js';
 
 // Phase 3 coverage: language toggle, first-run tour, and the component loop
 // (create from selection, place an instance) — all through the real UI.
@@ -10,9 +11,10 @@ async function gotoSeeded(page) {
 
 test('language toggle switches panel chrome between English and Bengali', async ({ page }) => {
   await gotoSeeded(page);
-  await page.getByRole('button', { name: 'BN', exact: true }).click();
+  // The language toggle may sit in the More overflow menu (Phase 5).
+  await clickTopBarText(page, 'BN');
   await expect(page.getByText('লেয়ার', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'EN', exact: true }).click();
+  await clickTopBarText(page, 'EN');
   await expect(page.getByText('Layers', { exact: true })).toBeVisible();
 });
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useStore } from './store/useStore.js';
 import Toolbar from './components/Toolbar.jsx';
 import TopBar from './components/TopBar.jsx';
@@ -10,12 +10,36 @@ import StatusBar from './components/StatusBar.jsx';
 import TemplateModal from './components/TemplateModal.jsx';
 import TraceModal from './components/TraceModal.jsx';
 import ShortcutHelpModal from './components/ShortcutHelpModal.jsx';
+import CommandPalette from './components/CommandPalette.jsx';
 import { TEMPLATES } from './lib/templates.js';
 import { moveObject } from './lib/geometry.js';
 import { importSvgToGroup } from './lib/svgImport.js';
 import { importEpsToGroup } from './lib/eps.js';
 import { t } from './lib/i18n.js';
 import Tour from './components/Tour.jsx';
+import { saveCurrentDocument, pickAndOpenDocument } from './lib/docFile.js';
+import {
+  exportSvgFile, exportEpsFile, exportPdfFile, exportPngFile, copySvgFile,
+} from './lib/quickExport.js';
+import { decodeEpsBytes } from './lib/eps.js';
+
+// Desktop layout breakpoint (matches Tailwind's lg). Defaults to desktop
+// when matchMedia is unavailable (jsdom harness), so panels still render.
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState(() => (
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(min-width: 1024px)').matches
+      : true
+  ));
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return undefined;
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const fn = () => setIsDesktop(mq.matches);
+    mq.addEventListener('change', fn);
+    return () => mq.removeEventListener('change', fn);
+  }, []);
+  return isDesktop;
+}
 
 const AUTOSAVE_KEY = 'vectorforge-autosave-v1';
 
@@ -38,6 +62,10 @@ export default function App() {
   const [traceOpen, setTraceOpen] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [showAssets, setShowAssets] = useState(false);
+  const [mobilePanel, setMobilePanel] = useState(null);
+  const isDesktop = useIsDesktop();
   const showTemplates = useStore((s) => s.showTemplates);
   const setShowTemplates = useStore((s) => s.setShowTemplates);
   const loadDocument = useStore((s) => s.loadDocument);
@@ -98,6 +126,7 @@ export default function App() {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       const s = useStore.getState();
       const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(true); return; }
       if (mod && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); s.undo(); return; }
       if (mod && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); s.redo(); return; }
       if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); s.duplicateSelected(); return; }
@@ -137,8 +166,9 @@ export default function App() {
         return;
       }
       if (e.key === '?') { setShowShortcuts(true); return; }
-      const toolKeys = { v: 'select', a: 'direct', p: 'pen', r: 'rect', e: 'ellipse', l: 'line', t: 'text', b: 'brush', h: 'hand' };
       const k = e.key.toLowerCase();
+      if (!mod && k === 'f') { s.zoomToSelection(); return; }
+      const toolKeys = { v: 'select', a: 'direct', p: 'pen', r: 'rect', e: 'ellipse', l: 'line', t: 'text', b: 'brush', h: 'hand' };
       if (!mod && toolKeys[k]) s.setTool(toolKeys[k]);
     };
     window.addEventListener('keydown', onKey);
@@ -200,9 +230,102 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Command palette registry (Phase 5). Every action runs a real function
+  // — the same store actions and shared file/export helpers the top bar
+  // uses, so palette and buttons can never diverge in behavior.
+  const paletteActions = useMemo(() => {
+    const st = () => useStore.getState();
+    const pickFile = (accept, asBuffer, cb) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = accept;
+      input.onchange = () => {
+        const f = input.files && input.files[0];
+        if (!f) return;
+        const r = new FileReader();
+        r.onload = () => cb(r.result);
+        if (asBuffer) r.readAsArrayBuffer(f);
+        else r.readAsText(f);
+      };
+      input.click();
+    };
+    const pasteSvg = async () => {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text && text.includes('<svg')) importSvg(text);
+        else alert(t(language, 'alertPasteNoSvg'));
+      } catch {
+        alert(t(language, 'alertPasteClipboardFail'));
+      }
+    };
+    const toolDefs = [
+      ['select', 'V'], ['direct', 'A'], ['pen', 'P'], ['rect', 'R'], ['ellipse', 'E'],
+      ['line', 'L'], ['polygon', ''], ['star', ''], ['text', 'T'], ['brush', 'B'],
+      ['eraser', ''], ['eyedropper', ''], ['hand', 'H'],
+    ];
+    const toolKey = {
+      select: 'toolSelect', direct: 'toolDirect', pen: 'toolPen', rect: 'toolRect',
+      ellipse: 'toolEllipse', line: 'toolLine', polygon: 'toolPolygon', star: 'toolStar',
+      text: 'toolText', brush: 'toolBrush', eraser: 'toolEraser',
+      eyedropper: 'toolEyedropper', hand: 'toolHand',
+    };
+    const acts = toolDefs.map(([id, key]) => ({
+      id: `tool-${id}`,
+      title: t(language, toolKey[id]),
+      hint: key ? `Tool (${key})` : 'Tool',
+      keywords: ['tool', id],
+      run: () => st().setTool(id),
+    }));
+    const A = (id, titleKey, run, hint, keywords) => ({
+      id, title: t(language, titleKey), hint, keywords, run,
+    });
+    acts.push(
+      A('new', 'actNew', () => {
+        if (confirm(t(language, 'alertNewConfirm'))) {
+          st().newDocument({ w: 1080, h: 1080, bg: '#ffffff', name: 'Social 1080 × 1080' }, []);
+          st().setDocName('Untitled');
+        }
+      }, '', ['new', 'document', 'blank']),
+      A('open', 'actOpen', () => pickAndOpenDocument(() => alert(t(language, 'alertOpenInvalid'))), '', ['open', 'json', 'file']),
+      A('save', 'actSave', saveCurrentDocument, '', ['save', 'download', 'json']),
+      A('import-svg', 'actImportSvg', () => pickFile('.svg,image/svg+xml', false, (r) => importSvg(String(r || ''))), '', ['import', 'svg', 'vector']),
+      A('import-eps', 'actImportEps', () => pickFile('.eps,application/postscript', true, (r) => { if (r) importEps(decodeEpsBytes(r)); }), '', ['import', 'eps', 'postscript']),
+      A('paste-svg', 'actPasteSvg', pasteSvg, '', ['paste', 'clipboard', 'svg']),
+      A('undo', 'actUndo', () => st().undo(), 'Ctrl/Cmd + Z', ['undo', 'revert']),
+      A('redo', 'actRedo', () => st().redo(), 'Ctrl/Cmd + Shift + Z', ['redo']),
+      A('duplicate', 'actDuplicate', () => st().duplicateSelected(), 'Ctrl/Cmd + D', ['duplicate', 'copy']),
+      A('delete', 'actDelete', () => st().deleteSelected(), 'Del', ['delete', 'remove']),
+      A('group', 'actGroup', () => st().groupSelected(), '', ['group']),
+      A('ungroup', 'actUngroup', () => st().ungroupSelected(), '', ['ungroup']),
+      A('zoom-selection', 'actZoomSelection', () => st().zoomToSelection(), 'F', ['zoom', 'selection', 'fit']),
+      A('zoom-in', 'actZoomIn', () => { const s = st(); s.setZoom(s.zoom * 1.2); }, '', ['zoom', 'in']),
+      A('zoom-out', 'actZoomOut', () => { const s = st(); s.setZoom(s.zoom / 1.2); }, '', ['zoom', 'out']),
+      A('reset-view', 'actResetView', () => { st().setZoom(1); st().setPan({ x: 40, y: 40 }); }, '', ['reset', 'view', 'fit']),
+      A('toggle-grid', 'actToggleGrid', () => st().toggleGrid(), '', ['grid', 'toggle']),
+      A('toggle-snap', 'actToggleSnap', () => st().toggleSnap(), '', ['snap', 'toggle']),
+      A('templates', 'actTemplates', () => setShowTemplates(true), '', ['templates']),
+      A('trace', 'actTrace', () => openTrace(null), '', ['trace', 'image']),
+      A('help', 'actHelp', () => setShowShortcuts(true), '?', ['help', 'shortcuts', 'keys']),
+      A('tour', 'actTour', () => setTourOpen(true), '', ['tour', 'intro', 'guide']),
+      A('export-svg', 'actExportSvg', exportSvgFile, '', ['export', 'svg']),
+      A('export-eps', 'actExportEps', exportEpsFile, '', ['export', 'eps']),
+      A('export-pdf', 'actExportPdf', exportPdfFile, '', ['export', 'pdf']),
+      A('export-png', 'actExportPng', async () => {
+        try { await exportPngFile(2); } catch (err) { alert(err.message); }
+      }, '', ['export', 'png', 'raster']),
+      A('copy-svg', 'actCopySvg', async () => {
+        try { await copySvgFile(); alert(t(language, 'alertCopyOk')); }
+        catch { alert(t(language, 'alertCopyFail')); }
+      }, '', ['copy', 'clipboard', 'svg']),
+      A('assets', 'actAssets', () => setShowAssets(true), '', ['assets', 'export', 'sizes']),
+    );
+    return acts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [language]);
+
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#1e1e1e] text-gray-100">
-      <TopBar onTraceClick={() => openTrace(null)} onImportSvg={importSvg} onImportEps={importEps} onShowShortcuts={() => setShowShortcuts(true)} onReplayTour={() => setTourOpen(true)} />
+    <div className="flex h-dvh w-screen flex-col overflow-hidden bg-[#1e1e1e] text-gray-100">
+      <TopBar onTraceClick={() => openTrace(null)} onImportSvg={importSvg} onImportEps={importEps} onShowShortcuts={() => setShowShortcuts(true)} onReplayTour={() => setTourOpen(true)} onShowPalette={() => setPaletteOpen(true)} showAssets={showAssets} setShowAssets={setShowAssets} />
       {editingComponentId && (
         <div className="flex items-center justify-between bg-blue-700 px-3 py-1.5 text-xs text-white">
           <span>{t(language, 'editBanner', { name: editingComponent?.name || '' })}</span>
@@ -212,32 +335,67 @@ export default function App() {
           </span>
         </div>
       )}
-      {/* Small screens: toolbar becomes a horizontal scroll strip on top and
-          panels stack below the canvas — a compact but WORKING layout. The
-          old "small screen will feel cramped" dead-end notice is gone. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
+      {/* Responsive layout (Phase 5): desktop keeps the docked side panels;
+          on phones the panels become bottom-sheet drawers (closed by
+          default) opened from floating buttons, and the canvas takes the
+          remaining viewport — no page scroll, no dead-end notice. */}
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
         <Toolbar />
         <CanvasArea onImageDrop={(file) => openTrace(file)} />
-        <div className="flex w-full shrink-0 flex-col border-t border-[#333] bg-[#252525] lg:w-72 lg:overflow-y-auto lg:border-l lg:border-t-0">
-          <LayersPanel />
-          <PropertiesPanel />
-          <AlignPanel />
-          <div className="p-2">
-            <h3 className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-gray-400">{t(language, 'shortcuts')}</h3>
-            <p className="px-1 text-[11px] leading-relaxed text-gray-500">
-              {t(language, 'shortcutsText')}
-            </p>
-            <button onClick={() => setShowShortcuts(true)} className="mt-1 px-1 text-[11px] font-semibold text-blue-400 hover:text-blue-300">
-              {t(language, 'showAllShortcuts')}
-            </button>
+        {isDesktop ? (
+          <div className="flex w-72 shrink-0 flex-col overflow-y-auto border-l border-[#333] bg-[#252525]">
+            <LayersPanel />
+            <PropertiesPanel />
+            <AlignPanel />
+            <div className="p-2">
+              <h3 className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-gray-400">{t(language, 'shortcuts')}</h3>
+              <p className="px-1 text-[11px] leading-relaxed text-gray-500">
+                {t(language, 'shortcutsText')}
+              </p>
+              <button onClick={() => setShowShortcuts(true)} className="mt-1 px-1 text-[11px] font-semibold text-blue-400 hover:text-blue-300">
+                {t(language, 'showAllShortcuts')}
+              </button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <>
+            <div className="absolute bottom-3 left-3 z-30 flex gap-2">
+              <button
+                onClick={() => setMobilePanel(mobilePanel === 'layers' ? null : 'layers')}
+                className={`rounded-full px-3 py-2 text-xs font-semibold shadow-lg ${mobilePanel === 'layers' ? 'bg-blue-600 text-white' : 'bg-[#3a3a3a] text-gray-100'}`}
+              >
+                {t(language, 'layers')}
+              </button>
+              <button
+                onClick={() => setMobilePanel(mobilePanel === 'properties' ? null : 'properties')}
+                className={`rounded-full px-3 py-2 text-xs font-semibold shadow-lg ${mobilePanel === 'properties' ? 'bg-blue-600 text-white' : 'bg-[#3a3a3a] text-gray-100'}`}
+              >
+                {t(language, 'properties')}
+              </button>
+            </div>
+            {mobilePanel && (
+              <>
+                <div className="fixed inset-0 z-30 bg-black/40" onClick={() => setMobilePanel(null)} />
+                <div className="fixed inset-x-0 bottom-0 z-40 max-h-[70dvh] overflow-y-auto rounded-t-2xl border-t border-[#333] bg-[#252525] p-2">
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="px-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                      {mobilePanel === 'layers' ? t(language, 'layers') : t(language, 'properties')}
+                    </span>
+                    <button onClick={() => setMobilePanel(null)} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs">✕</button>
+                  </div>
+                  {mobilePanel === 'layers' ? <LayersPanel /> : (<><PropertiesPanel /><AlignPanel /></>)}
+                </div>
+              </>
+            )}
+          </>
+        )}
       </div>
       <StatusBar />
       {showTemplates && <TemplateModal onClose={() => setShowTemplates(false)} />}
       {traceOpen && <TraceModal file={traceFile} onClose={() => setTraceOpen(false)} />}
       {showShortcuts && <ShortcutHelpModal onClose={() => setShowShortcuts(false)} />}
       {tourOpen && <Tour onClose={() => setTourOpen(false)} />}
+      {paletteOpen && <CommandPalette actions={paletteActions} onClose={() => setPaletteOpen(false)} />}
     </div>
   );
 }

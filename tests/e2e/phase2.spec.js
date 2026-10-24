@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { clickTopBarTitle } from './helpers.js';
 
 // Phase 2 coverage: multi-artboard switching and a boolean operation,
 // driven through the real UI (mouse + buttons), not store internals.
@@ -15,7 +16,11 @@ test('multi-artboard: add, switch to an empty board, switch back', async ({ page
   // The logo template is visible on the first artboard.
   await expect(page.locator('[data-testid="canvas-svg"]').getByText('NOVA STUDIO')).toBeVisible();
 
-  await page.getByTitle('Add artboard').click();
+  // Add now opens the Canvas Size dialog (Phase 5): confirm the default
+  // size to create the board instead of adding 1080×1080 instantly.
+  await clickTopBarTitle(page, 'Add artboard');
+  await expect(page.getByRole('dialog', { name: 'New artboard size' })).toBeVisible();
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(select.locator('option')).toHaveCount(2);
   // The new artboard is active and empty: the logo text is gone.
   await expect(page.locator('[data-testid="canvas-svg"]').getByText('NOVA STUDIO')).toHaveCount(0);

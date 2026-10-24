@@ -2,12 +2,12 @@ import { useState } from 'react';
 import { useStore } from '../store/useStore.js';
 import { t } from '../lib/i18n.js';
 import { strokeOutlineContours } from '../lib/pathops.js';
+import { SYSTEM_FONTS, GOOGLE_FONTS, isGoogleFont, ensureFontLoaded } from '../lib/fonts.js';
 
 const SWATCHES = [
   '#111111', '#ffffff', '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e',
   '#14b8a6', '#06b6d4', '#3b82f6', '#4f7cff', '#8b5cf6', '#ec4899', '#f43f5e',
 ];
-const FONTS = ['Arial', 'Helvetica', 'Georgia', 'Times New Roman', 'Courier New', 'Verdana', 'Trebuchet MS', 'Impact'];
 const BLENDS = ['normal', 'multiply', 'screen', 'overlay', 'darken', 'lighten'];
 
 function Row({ label, children }) {
@@ -229,8 +229,21 @@ export default function PropertiesPanel() {
       {single?.type === 'text' && (
         <>
           <Row label={t(language, 'propFont')}>
-            <select value={single.fontFamily} onChange={(e) => updateObject(single.id, { fontFamily: e.target.value })} className="rounded border border-[#444] bg-[#2a2a2a] px-1 py-1 text-xs text-white outline-none">
-              {FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
+            <select
+              value={single.fontFamily}
+              onChange={(e) => {
+                const f = e.target.value;
+                if (isGoogleFont(f)) ensureFontLoaded(f);
+                updateObject(single.id, { fontFamily: f });
+              }}
+              className="rounded border border-[#444] bg-[#2a2a2a] px-1 py-1 text-xs text-white outline-none"
+            >
+              <optgroup label={t(language, 'fontSystem')}>
+                {SYSTEM_FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
+              </optgroup>
+              <optgroup label={t(language, 'fontGoogle')}>
+                {GOOGLE_FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
+              </optgroup>
             </select>
           </Row>
           <Row label={t(language, 'propSize')}>

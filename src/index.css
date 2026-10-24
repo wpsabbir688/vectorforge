@@ -11,3 +11,10 @@ html, body, #root {
 input[type="number"]::-webkit-inner-spin-button {
   opacity: 0.4;
 }
+
+/* Phase 5: prevent double-tap zoom from hijacking canvas gestures on
+   phones. The canvas SVG itself uses touch-none (touch-action: none);
+   UI chrome only needs double-tap-zoom suppression. */
+button, select, input, textarea, label {
+  touch-action: manipulation;
+}

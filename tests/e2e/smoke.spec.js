@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs/promises';
+import { clickTopBarTitle } from './helpers.js';
 
 // Smoke test for the production build: the app must render (never a blank
 // page), draw, recolor, and export. This is the test that would have caught
@@ -38,7 +39,7 @@ test('draw a rectangle and change its fill', async ({ page }) => {
 
 test('export SVG downloads a valid file', async ({ page }) => {
   const downloadPromise = page.waitForEvent('download');
-  await page.getByTitle('Export SVG').click();
+  await clickTopBarTitle(page, 'Export SVG');
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/\.svg$/);
   const path = await download.path();

@@ -1,6 +1,7 @@
 // Phase 4 export specs: EPS and PDF downloads from the top bar.
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
+import { clickTopBarTitle } from './helpers.js';
 
 test.beforeEach(async ({ page }) => {
   // Skip the onboarding tour so the studio is immediately usable.
@@ -14,7 +15,7 @@ test.beforeEach(async ({ page }) => {
 
 test('Export EPS downloads a valid EPS file', async ({ page }) => {
   const downloadPromise = page.waitForEvent('download');
-  await page.getByTitle('Export EPS').click();
+  await clickTopBarTitle(page, 'Export EPS');
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/\.eps$/);
   const path = await download.path();
@@ -25,7 +26,7 @@ test('Export EPS downloads a valid EPS file', async ({ page }) => {
 
 test('Export PDF downloads a valid PDF file', async ({ page }) => {
   const downloadPromise = page.waitForEvent('download');
-  await page.getByTitle('Export PDF').click();
+  await clickTopBarTitle(page, 'Export PDF');
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/\.pdf$/);
   const path = await download.path();

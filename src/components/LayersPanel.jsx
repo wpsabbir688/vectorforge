@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Eye, EyeOff, Lock, LockOpen, ChevronUp, ChevronDown, Square } from 'lucide-react';
+import { Eye, EyeOff, Lock, LockOpen, ChevronUp, ChevronDown, Square, X } from 'lucide-react';
 import { useStore } from '../store/useStore.js';
 import { t } from '../lib/i18n.js';
+import { filterLayerRows } from '../lib/filterLayers.js';
 
 const TYPE_LABEL = {
   rect: 'Rect', ellipse: 'Ellipse', line: 'Line', polygon: 'Polygon', star: 'Star',
@@ -25,6 +26,7 @@ export default function LayersPanel() {
   const editingComponentId = useStore((s) => s.editingComponentId);
   const [renaming, setRenaming] = useState(null);
   const [nameDraft, setNameDraft] = useState('');
+  const [query, setQuery] = useState('');
 
   const move = (id, dir) => {
     act((list) => {
@@ -37,11 +39,33 @@ export default function LayersPanel() {
     });
   };
 
-  const rows = [...objects].reverse();
+  // Filtering only narrows the VISIBLE list: document order and selection
+  // are untouched, and move up/down still operate on the full list.
+  const rows = filterLayerRows([...objects].reverse(), query);
   return (
     <div data-tour="layers" className="border-b border-[#333] p-2">
       <h3 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-gray-400">{t(language, 'layers')}</h3>
-      {rows.length === 0 && <p className="px-1 text-xs text-gray-500">{t(language, 'layersEmpty')}</p>}
+      <div className="relative mb-2">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t(language, 'layersSearchPlaceholder')}
+          className="w-full rounded border border-[#444] bg-[#2a2a2a] px-2 py-1 pr-6 text-xs text-white outline-none placeholder:text-gray-500"
+        />
+        {query && (
+          <button
+            title={t(language, 'layersSearchClear')}
+            onClick={() => setQuery('')}
+            className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-gray-400 hover:text-white"
+          >
+            <X size={13} />
+          </button>
+        )}
+      </div>
+      {objects.length === 0 && <p className="px-1 text-xs text-gray-500">{t(language, 'layersEmpty')}</p>}
+      {objects.length > 0 && rows.length === 0 && (
+        <p className="px-1 text-xs text-gray-500">{t(language, 'layersNoMatch', { q: query.trim() })}</p>
+      )}
       <div className="max-h-56 space-y-0.5 overflow-y-auto">
         {rows.map((o) => {
           const selected = selection.includes(o.id);

@@ -81,8 +81,10 @@ Run it locally (see below) or deploy the `dist/` folder to any static host
 
 ### Panels (right side)
 - **Layers:** list (active artboard only), rename (double-click), visibility
-  eye, lock, reorder, mask/clipped badges, and a **Components** section
-  (place / edit / delete masters; instances carry a ◆ badge).
+  eye, lock, reorder, mask/clipped badges, **search filter** (case-insensitive
+  name match with a clear button and an honest "no layers match" state;
+  filtering never changes selection or document order), and a **Components**
+  section (place / edit / delete masters; instances carry a ◆ badge).
 - **Components (new in Phase 3):** select objects → **Create component**
   in Align & Arrange → place instances from the Layers panel. Editing a
   master updates every instance; **Detach instance** turns one instance
@@ -93,7 +95,13 @@ Run it locally (see below) or deploy the `dist/` folder to any static host
   center + radius, 2+ stops), stroke color + width, opacity, blend mode,
   corner radius, polygon sides, star points / inner ratio, font family /
   size / weight, text content, position, size, rotation, path Simplify /
-  Smooth, Outline stroke. Includes swatches and recent colors.
+  Smooth, Outline stroke. Includes swatches and recent colors. The font
+  picker has two groups: **System fonts** (8) and **Google Fonts** (22,
+  including Hind Siliguri and Noto Sans Bengali for Bengali text), loaded
+  on demand from Google Fonts when chosen — no font files are bundled.
+  Exports keep the font-family name, so a viewer needs the font installed
+  or loaded; offline use falls back to system fonts. The only network
+  request is the font stylesheet itself (no tracking beyond that).
 - **Align:** left / center / right / top / middle / bottom, distribute
   horizontally / vertically (3+ objects), Pathfinder booleans, mask, and
   text-on-path actions.
@@ -117,6 +125,58 @@ pinch zooms and two-finger pan work on tablets, and small screens get a
 compact working layout (scrollable toolbar) instead of the old dead-end
 notice. Pinch is verified by code inspection — Playwright's touchscreen
 API has no multi-touch; single-finger touch drawing is E2E-tested.
+
+### Responsive header + mobile layout (new in Phase 5)
+The top bar measures its own width and moves lower-priority actions into
+a **More** overflow menu (the same actions, never divergent duplicates);
+primary actions (New/Open/Save, undo/redo, zoom, export) stay reachable,
+and artboard controls collapse into a compact switcher. The desktop visual
+order changed slightly for this (artboard select now sits left of the
+import/export group) so the overflow cut is clean. On phones, Layers and
+Properties become **bottom-sheet drawers** (closed by default, opened from
+floating buttons), the canvas takes the remaining viewport, the toolbar
+stays a horizontally scrollable row, and every dialog fits small screens
+(near-full width, max-height 90dvh with internal scroll). There is **no
+horizontal page scroll at any viewport width ≥ 320px** (E2E-tested at
+390px and 320px). Viewport meta is `width=device-width, initial-scale=1,
+viewport-fit=cover`; the canvas SVG uses `touch-action: none` and UI
+chrome uses `touch-action: manipulation` so double-tap zoom never hijacks
+canvas gestures.
+
+### Command palette (new in Phase 5)
+**Ctrl/Cmd+K** (or the palette button in the top bar) opens a fuzzy-search
+palette over a real action registry: all 13 tools, file operations (new,
+open, save, import SVG/EPS, paste SVG), edit (undo, redo, duplicate,
+delete, group, ungroup, zoom to selection), view (zoom in/out, reset view,
+grid/snap toggles, templates, trace, help, tour), and export (SVG, EPS,
+PDF, PNG, copy SVG, asset panel). Arrow keys navigate, Enter runs, Esc
+closes — every listed action executes a real function; there are no dead
+entries. Its shortcut is listed in the shortcut-help modal.
+
+### Recent files (new in Phase 5)
+The **Recent** button in the top bar lists the last 5 opened or saved JSON
+documents (name + relative time); clicking one reopens it. Entries live in
+localStorage (`vectorforge-recent-files`), so the list is per-browser;
+documents over ~800 KB are not recorded, and if storage fills up the
+oldest entry is evicted and the save retried once — it never crashes.
+Clear removes the whole list.
+
+### Zoom to selection (new in Phase 5)
+The **Crosshair** button in the top bar (or **F**) fits the view to the
+current selection with padding; with nothing selected it fits the
+artboard, the same as the existing Fit action.
+
+### Custom canvas size (new in Phase 5)
+The **Canvas size** button in the artboard controls opens a dialog with
+preset sizes plus **custom width × height** inputs and a unit selector
+(**px, mm, cm, in**). Units convert to internal pixels at **96 DPI
+(1 in = 96 px)**; the stored artboard size stays in px, so canvas
+rendering and all exports (SVG/PNG/EPS/PDF) follow automatically.
+Resizing the active artboard is **undoable** (artboard size now lives in
+the history snapshot). Inputs validate: positive integers, range
+10–10000 px; empty or non-numeric input shows a clear inline error
+instead of breaking the canvas. The same dialog appears when **adding a
+new artboard**, so new boards are no longer locked to 1080×1080.
 
 ### Onboarding tour (new in Phase 3)
 First visit shows a short guided tour (toolbar → canvas → layers →
@@ -193,6 +253,9 @@ Bring existing vector art in as one centered, selected group:
 
 ### History, files, and export
 - Undo / redo (Ctrl+Z / Ctrl+Shift+Z), snapshot stack capped at 100 steps.
+  Snapshots cover artboards too, so custom canvas-size changes undo/redo
+  like any other edit (transient preset switches and background-picker
+  drags stay non-undoable by design).
 - **New / Open (JSON) / Save (JSON download)**, autosave to localStorage with
   restore on reload. Saved files are v2 format (`artboards`,
   `activeArtboardId`, objects with `artboardId`); **v1 files (single
@@ -223,8 +286,9 @@ V Select · A Direct · P Pen · R Rectangle · E Ellipse · L Line · T Text ·
 B Brush · H Hand · Space+drag pan · Ctrl+wheel zoom · Shift constrain ·
 Ctrl+D duplicate · Ctrl+Z undo · Ctrl+Shift+Z / Ctrl+Y redo · Del delete ·
 Arrows nudge (Shift = 10px) · Enter finishes a pen path · Esc cancels /
-deselects · Ctrl/Cmd+V pastes SVG · **? opens the full shortcut help** (also
-via the **Help** button in the top bar).
+deselects · Ctrl/Cmd+V pastes SVG · **Ctrl/Cmd+K opens the command palette**
+· **F zooms to selection** (or fits the artboard) · **? opens the full
+shortcut help** (also via the **Help** button in the top bar).
 
 ## Performance
 
@@ -233,7 +297,7 @@ zustand with selectors so panels don't re-render the whole tree on every
 pointer move; shapes are memoized and drag updates preserve object identity
 for unchanged objects; drag/resize work is batched through
 requestAnimationFrame; the SVG node count stays proportional to object count
-(no per-pixel work). Production bundle: ~492 KB JS (gzip ~148 KB) plus a
+(no per-pixel work). Production bundle: ~509 KB JS (gzip ~151 KB) plus a
 ~20 KB stylesheet.
 
 ## Run it
@@ -262,15 +326,54 @@ migration (v1 → v2, v2 passthrough, smart-snap behavior).
 
 Playwright tests run against the production build (`vite preview`): studio
 renders, rectangle draw + fill change, SVG export download, multi-artboard
-add/switch, boolean unite through the real UI, and EPS + PDF export
-downloads. GitHub Actions (`.github/workflows/ci.yml`) runs unit tests, the
-production build, and the Playwright suite on every push/PR to main.
+add/switch, boolean unite through the real UI, EPS + PDF export downloads,
+and the Phase 5 mobile suite (no horizontal overflow at 390px and 320px,
+More menu action, drawer toggles, mobile drawing, palette, recent files,
+layer search, zoom to selection, custom canvas size). GitHub Actions
+(`.github/workflows/ci.yml`) runs unit tests, the production build, and the
+Playwright suite on every push/PR to main.
 
-Current result: **123/123 unit tests pass** (27 geometry + 9 trace + 14 SVG
+Current result: **138/138 unit tests pass** (27 geometry + 9 trace + 14 SVG
 import + 5 gradients + 9 booleans + 12 path ops + 8 artboards + 18 Phase 3 +
-12 EPS + 4 PDF + 5 SVG optimizer) and **11/11 Playwright tests pass**.
+12 EPS + 4 PDF + 5 SVG optimizer + 15 Phase 5) and **22/22 Playwright tests
+pass**.
 
 ## Changelog
+
+### Phase 5 (2026-10-25) — responsive + user-friendly
+- Responsive header: the top bar measures its width and moves
+  lower-priority actions into a More overflow menu (same actions, no
+  duplicates); desktop order changed slightly (artboard select left of
+  import/export) so the overflow cut is clean. No horizontal page scroll
+  at any viewport ≥ 320px (E2E at 390px and 320px).
+- Mobile layout: Layers/Properties become bottom-sheet drawers on phones
+  (closed by default, floating toggle buttons), canvas takes the remaining
+  viewport, toolbar stays a scrollable row, all dialogs fit small screens
+  (90dvh + internal scroll). Viewport meta gains `viewport-fit=cover`;
+  canvas `touch-action: none`, UI chrome `touch-action: manipulation`.
+- Command palette (Ctrl/Cmd+K + palette button): fuzzy search over a real
+  registry (13 tools, file, edit, view, export); arrows/Enter/Esc; no dead
+  entries. Shortcuts listed in the help modal.
+- Recent files: top-bar Recent menu, last 5 JSON documents (name + time),
+  localStorage-backed and per-browser, ~800 KB entry cap, evict-oldest on
+  quota, never crashes; click reopens.
+- Layer search: case-insensitive filter with clear button and honest empty
+  state; selection and document order untouched.
+- Zoom to selection: top-bar button + F; fits the artboard when nothing is
+  selected. History snapshots now include artboards, so canvas-size changes
+  are undoable.
+- Google Fonts: 22 families in the Properties picker (incl. Hind Siliguri
+  and Noto Sans Bengali), loaded on demand; exports keep the family name,
+  offline falls back to system fonts; no bundled files, no tracking beyond
+  the font request.
+- Custom canvas size: Canvas size dialog (presets + custom W×H, units px /
+  mm / cm / in at 96 DPI, 10–10000 px validation with inline errors) for
+  resizing the active artboard and for new artboards (no more fixed
+  1080×1080 default).
+- Tests 138/138, E2E 22/22, build passes, bundle 509 KB JS (+3.5% over
+  Phase 4's 492 KB — inside the 25% budget). Honest limits: pinch on real
+  hardware still untested; P0 leftovers (trace Web Worker, traced-doc perf,
+  autosave safety) still open; custom domain still the user's call.
 
 ### Phase 4 (2026-10-24) — production export
 - EPS export: valid Encapsulated PostScript per artboard (header,

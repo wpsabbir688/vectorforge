@@ -50,6 +50,15 @@ function reorder(list, ids, dir) {
 
 const DEFAULT_ARTBOARD = { id: 'art-0', w: 1080, h: 1080, bg: '#ffffff', name: 'Social 1080 × 1080' };
 
+// History snapshots (Phase 5): object edits AND artboard edits share one
+// undo stack, so an artboard resize undoes like any other edit. Snapshots
+// are in-memory only (never persisted), so no migration is needed.
+const snapshot = (s) => ({
+  objects: clone(s.objects),
+  artboards: clone(s.artboards),
+  activeArtboardId: s.activeArtboardId,
+});
+
 // Objects without artboardId belong to the active artboard (runtime safety
 // net; migration assigns artboardId on every load).
 const onActiveArtboard = (o, activeId) => !o.artboardId || o.artboardId === activeId;
@@ -112,6 +121,50 @@ export const useStore = create((set, get) => ({
     const artboards = s.artboards.map((a) => (a.id === s.activeArtboardId ? { ...a, ...patch } : a));
     return { artboards, artboard: artboards.find((a) => a.id === s.activeArtboardId) };
   }),
+  // Undoable resize of the ACTIVE artboard (Phase 5 custom canvas size).
+  // setArtboard above stays non-undoable for transient changes (bg color
+  // picker drags, preset switches mid-interaction); the dialog commits
+  // through here so Ctrl+Z restores the previous size.
+  resizeActiveArtboard: (w, h, name) => set((s) => {
+    const artboards = s.artboards.map((a) => (a.id === s.activeArtboardId
+      ? { ...a, w, h, ...(name ? { name } : {}) } : a));
+    return {
+      past: [...s.past, snapshot(s)].slice(-HISTORY_CAP),
+      future: [],
+      artboards,
+      artboard: artboards.find((a) => a.id === s.activeArtboardId),
+    };
+  }),
+  // Document name for the Recent list (file name on open, 'Untitled' on
+  // New). Not part of the saved document format.
+  docName: 'Untitled',
+  setDocName: (docName) => set({ docName }),
+  // Canvas viewport size in CSS px, reported by CanvasArea's observer.
+  // Used by zoom-to-selection; defaults keep old behavior when unmeasured.
+  viewport: { w: 0, h: 0 },
+  setViewport: (viewport) => set({ viewport }),
+  // Fit the view to the current selection; with nothing selected, fit the
+  // artboard. Falls back to the reset view when the viewport is unknown.
+  zoomToSelection: () => {
+    const s = get();
+    const art = s.getActiveArtboard();
+    const box = s.getSelectionBox() || { x: 0, y: 0, w: art.w, h: art.h };
+    const vp = s.viewport;
+    if (!vp || vp.w <= 0 || vp.h <= 0 || box.w <= 0 || box.h <= 0) {
+      set({ zoom: 1, pan: { x: 40, y: 40 } });
+      return;
+    }
+    const pad = 48;
+    const zoom = Math.min(8, Math.max(0.1,
+      Math.min((vp.w - pad * 2) / box.w, (vp.h - pad * 2) / box.h)));
+    set({
+      zoom,
+      pan: {
+        x: vp.w / 2 - (box.x + box.w / 2) * zoom,
+        y: vp.h / 2 - (box.y + box.h / 2) * zoom,
+      },
+    });
+  },
   getActiveArtboard: () => {
     const s = get();
     return s.artboards.find((a) => a.id === s.activeArtboardId) || s.artboards[0];
@@ -200,11 +253,11 @@ export const useStore = create((set, get) => ({
   // Mutators must preserve object identity for unchanged items so memoized
   // views don't re-render the whole tree.
   act: (mutator) => {
-    const { objects, past } = get();
-    const next = mutator(objects);
+    const s = get();
+    const next = mutator(s.objects);
     set({
       objects: next,
-      past: [...past, clone(objects)].slice(-HISTORY_CAP),
+      past: [...s.past, snapshot(s)].slice(-HISTORY_CAP),
       future: [],
     });
   },
@@ -212,11 +265,12 @@ export const useStore = create((set, get) => ({
   live: (mutator) => set((s) => ({ objects: mutator(s.objects) })),
   cursor: { x: 0, y: 0 },
   setCursor: (cursor) => set({ cursor }),
-  beginDrag: () => set({ dragSnapshot: clone(get().objects) }),
+  beginDrag: () => set({ dragSnapshot: snapshot(get()) }),
   endDrag: () => {
     const { dragSnapshot, objects, past } = get();
     if (!dragSnapshot) return;
-    if (JSON.stringify(dragSnapshot) !== JSON.stringify(objects)) {
+    // Only object changes happen mid-drag; artboards ride along untouched.
+    if (JSON.stringify(dragSnapshot.objects) !== JSON.stringify(objects)) {
       set({ past: [...past, dragSnapshot].slice(-HISTORY_CAP), future: [] });
     }
     set({ dragSnapshot: null });
@@ -347,17 +401,33 @@ export const useStore = create((set, get) => ({
   },
 
   undo: () => {
-    const { past, future, objects } = get();
-    if (past.length === 0) return;
-    const prev = past[past.length - 1];
-    set({ objects: prev, past: past.slice(0, -1), future: [clone(objects), ...future], selection: [] });
+    const s = get();
+    if (s.past.length === 0) return;
+    const prev = s.past[s.past.length - 1];
+    set({
+      objects: prev.objects,
+      artboards: prev.artboards,
+      activeArtboardId: prev.activeArtboardId,
+      artboard: prev.artboards.find((a) => a.id === prev.activeArtboardId) || prev.artboards[0],
+      past: s.past.slice(0, -1),
+      future: [snapshot(s), ...s.future],
+      selection: [],
+    });
   },
 
   redo: () => {
-    const { past, future, objects } = get();
-    if (future.length === 0) return;
-    const next = future[0];
-    set({ objects: next, future: future.slice(1), past: [...past, clone(objects)].slice(-HISTORY_CAP), selection: [] });
+    const s = get();
+    if (s.future.length === 0) return;
+    const next = s.future[0];
+    set({
+      objects: next.objects,
+      artboards: next.artboards,
+      activeArtboardId: next.activeArtboardId,
+      artboard: next.artboards.find((a) => a.id === next.activeArtboardId) || next.artboards[0],
+      future: s.future.slice(1),
+      past: [...s.past, snapshot(s)].slice(-HISTORY_CAP),
+      selection: [],
+    });
   },
 
   // Kept signature for callers (templates, New button): a single artboard

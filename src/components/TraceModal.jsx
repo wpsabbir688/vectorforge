@@ -76,7 +76,7 @@ export default function TraceModal({ file, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-[#252525] p-5 text-gray-100 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-2xl bg-[#252525] p-5 text-gray-100 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-bold">{t(language, 'traceTitle')}</h2>
           <button onClick={onClose} className="rounded p-1 hover:bg-[#3a3a3a]"><X size={18} /></button>

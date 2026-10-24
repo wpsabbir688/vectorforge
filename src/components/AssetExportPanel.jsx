@@ -108,7 +108,7 @@ export default function AssetExportPanel({ onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div className="w-[420px] max-w-[92vw] rounded-xl border border-[#444] bg-[#252525] p-4 text-gray-100" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[90dvh] w-[420px] max-w-[92vw] overflow-y-auto rounded-xl border border-[#444] bg-[#252525] p-4 text-gray-100" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-bold">{t(language, 'assetTitle')}</h2>
           <button onClick={onClose} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs">{t(language, 'assetClose')}</button>
