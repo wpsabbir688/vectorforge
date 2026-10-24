@@ -21,7 +21,7 @@ function BarButton({ title, onClick, disabled, children, active }) {
   );
 }
 
-export default function TopBar({ onTraceClick }) {
+export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts }) {
   const zoom = useStore((s) => s.zoom);
   const setZoom = useStore((s) => s.setZoom);
   const setPan = useStore((s) => s.setPan);
@@ -39,6 +39,28 @@ export default function TopBar({ onTraceClick }) {
   const loadDocument = useStore((s) => s.loadDocument);
   const setShowTemplates = useStore((s) => s.setShowTemplates);
   const fileRef = useRef(null);
+  const svgFileRef = useRef(null);
+
+  const doImportSvgFile = (file) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (onImportSvg) onImportSvg(String(reader.result || ''));
+    };
+    reader.readAsText(file);
+  };
+
+  const doPasteSvg = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && text.includes('<svg')) {
+        if (onImportSvg) onImportSvg(text);
+      } else {
+        alert('Clipboard does not contain SVG markup. Copy an SVG (e.g. from Figma) and try again, or use Ctrl/Cmd+V.');
+      }
+    } catch {
+      alert('Could not read the clipboard in this browser. Copy the SVG, then paste with Ctrl/Cmd+V instead.');
+    }
+  };
 
   const getDoc = () => {
     const s = useStore.getState();
@@ -99,7 +121,13 @@ export default function TopBar({ onTraceClick }) {
       </BarButton>
       <input ref={fileRef} type="file" accept=".json,application/json" className="hidden" onChange={(e) => { if (e.target.files[0]) doOpen(e.target.files[0]); e.target.value = ''; }} />
       <BarButton title="Save as JSON" onClick={doSave}><Save size={16} /> Save</BarButton>
+      <BarButton title="Import an SVG file as a group" onClick={() => svgFileRef.current?.click()}>
+        <FolderOpen size={16} /> Import SVG
+      </BarButton>
+      <input ref={svgFileRef} type="file" accept=".svg,image/svg+xml" className="hidden" onChange={(e) => { if (e.target.files[0]) doImportSvgFile(e.target.files[0]); e.target.value = ''; }} />
+      <BarButton title="Paste SVG markup from the clipboard" onClick={doPasteSvg}>Paste SVG</BarButton>
       <BarButton title="Start from a template" onClick={() => setShowTemplates(true)}><LayoutTemplate size={16} /> Templates</BarButton>
+      <BarButton title="Keyboard shortcuts (?)" onClick={onShowShortcuts}>Help</BarButton>
       <div className="mx-1 h-6 w-px bg-[#444]" />
       <BarButton title="Undo (Ctrl+Z)" onClick={undo} disabled={past.length === 0}><Undo2 size={16} /></BarButton>
       <BarButton title="Redo (Ctrl+Shift+Z)" onClick={redo} disabled={future.length === 0}><Redo2 size={16} /></BarButton>

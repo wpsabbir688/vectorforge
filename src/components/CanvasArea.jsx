@@ -105,6 +105,77 @@ function collectGradients(list, out = []) {
 }
 
 const HANDLE_CURSORS = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize' };
+const RULER = 20; // px strip on the top + left of the canvas
+
+// Ruler strip: tick marks in canvas units that follow zoom/pan. Dragging
+// from a strip creates a guide line on the canvas (see CanvasArea).
+function RulerStrip({ axis, pan, zoom, onGuideDown, onGuideMove, onGuideUp }) {
+  const ref = useRef(null);
+  const [size, setSize] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => setSize(axis === 'h' ? el.clientWidth : el.clientHeight);
+    measure();
+    if (typeof ResizeObserver === 'undefined') {
+      // Very old browsers / non-DOM test envs: re-measure on window resize.
+      window.addEventListener('resize', measure);
+      return () => window.removeEventListener('resize', measure);
+    }
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [axis]);
+  const p = axis === 'h' ? pan.x : pan.y;
+  const steps = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000];
+  const step = steps.find((s) => s * zoom >= 60) || 5000;
+  const minor = step / 5;
+  const min = (0 - p) / zoom;
+  const max = (size - p) / zoom;
+  const majors = [];
+  for (let v = Math.ceil(min / step) * step; v <= max; v += step) majors.push(v);
+  const minors = [];
+  if (minor * zoom >= 6) {
+    for (let v = Math.ceil(min / minor) * minor; v <= max; v += minor) {
+      if (Math.abs(v / step - Math.round(v / step)) > 0.001) minors.push(v);
+    }
+  }
+  const toScreen = (v) => v * zoom + p;
+  return (
+    <div
+      ref={ref}
+      className="pointer-events-auto absolute overflow-hidden bg-[#252525]"
+      style={axis === 'h'
+        ? { left: RULER, top: 0, right: 0, height: RULER, cursor: 'ew-resize', borderBottom: '1px solid #333' }
+        : { left: 0, top: RULER, bottom: 0, width: RULER, cursor: 'ns-resize', borderRight: '1px solid #333' }}
+      onPointerDown={onGuideDown}
+      onPointerMove={onGuideMove}
+      onPointerUp={onGuideUp}
+    >
+      <svg width="100%" height="100%">
+        {minors.map((v) => {
+          const s = toScreen(v);
+          return axis === 'h'
+            ? <line key={`m${v}`} x1={s} y1={RULER - 6} x2={s} y2={RULER} stroke="#555" strokeWidth={1} />
+            : <line key={`m${v}`} x1={RULER - 6} y1={s} x2={RULER} y2={s} stroke="#555" strokeWidth={1} />;
+        })}
+        {majors.map((v) => {
+          const s = toScreen(v);
+          return (
+            <g key={v}>
+              {axis === 'h'
+                ? <line x1={s} y1={RULER - 11} x2={s} y2={RULER} stroke="#888" strokeWidth={1} />
+                : <line x1={RULER - 11} y1={s} x2={RULER} y2={s} stroke="#888" strokeWidth={1} />}
+              {axis === 'h'
+                ? <text x={s + 3} y={10} fontSize={9} fill="#999">{v}</text>
+                : <text transform={`translate(11 ${s}) rotate(-90)`} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#999">{v}</text>}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
 
 export default function CanvasArea({ onImageDrop }) {
   const objects = useStore((s) => s.objects);
@@ -118,10 +189,13 @@ export default function CanvasArea({ onImageDrop }) {
   const style = useStore((s) => s.style);
   const penDraft = useStore((s) => s.penDraft);
   const editingTextId = useStore((s) => s.editingTextId);
+  const guides = useStore((s) => s.guides);
+  const selectedGuideId = useStore((s) => s.selectedGuideId);
 
   const svgRef = useRef(null);
   const containerRef = useRef(null);
   const sessionRef = useRef(null);
+  const guideDragRef = useRef(null); // { id, axis } while a guide is dragged
   const spaceRef = useRef(false);
   const rafRef = useRef(0);
   const pendingRef = useRef(null);
@@ -178,6 +252,50 @@ export default function CanvasArea({ onImageDrop }) {
     return null;
   }
 
+  // --- guides ---
+  // Start dragging a guide. From a ruler strip, the guide is only created
+  // once the pointer actually moves (a plain click on a ruler does nothing).
+  // From an existing guide line, the guide is moved immediately.
+  function startGuideDrag(axis, e, existingId) {
+    if (existingId) {
+      store.getState().selectGuide(existingId);
+      guideDragRef.current = { id: existingId, axis };
+    } else {
+      guideDragRef.current = { axis, pending: true, startX: e.clientX, startY: e.clientY };
+    }
+    if (e.currentTarget.setPointerCapture) {
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* already released */ }
+    }
+  }
+
+  function moveGuideDrag(e) {
+    let drag = guideDragRef.current;
+    if (!drag) return;
+    if (drag.pending) {
+      if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < 3) return;
+      const pt = toCanvas(e);
+      const id = uid();
+      store.getState().addGuide({ id, axis: drag.axis, pos: drag.axis === 'v' ? pt.x : pt.y });
+      store.getState().selectGuide(id);
+      drag = { id, axis: drag.axis };
+      guideDragRef.current = drag;
+    }
+    const pt = toCanvas(e);
+    store.getState().moveGuide(drag.id, drag.axis === 'v' ? pt.x : pt.y);
+  }
+
+  function endGuideDrag(e) {
+    const drag = guideDragRef.current;
+    if (!drag) return;
+    guideDragRef.current = null;
+    if (drag.pending) return; // never moved: no guide was created
+    // Dragged off the canvas: delete the guide.
+    const rect = svgRef.current.getBoundingClientRect();
+    if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
+      store.getState().removeGuide(drag.id);
+    }
+  }
+
   function onPointerDown(e) {
     if (e.button === 1 || spaceRef.current || tool === 'hand') {
       sessionRef.current = { kind: 'pan', startX: e.clientX, startY: e.clientY, pan: { ...store.getState().pan } };
@@ -200,6 +318,7 @@ export default function CanvasArea({ onImageDrop }) {
           nextSel = [hit.id];
         }
         if (nextSel.length > 0) {
+          s.selectGuide(null);
           s.beginDrag();
           sessionRef.current = { kind: 'move', last: pt, startBox: s.getSelectionBox(), moved: false };
         }
@@ -304,6 +423,7 @@ export default function CanvasArea({ onImageDrop }) {
     const s = store.getState();
     const pt = toCanvas(e);
     s.setCursor({ x: Math.round(pt.x), y: Math.round(pt.y) });
+    if (guideDragRef.current) { moveGuideDrag(e); return; }
     const sess = sessionRef.current;
     if (!sess) return;
 
@@ -486,6 +606,7 @@ export default function CanvasArea({ onImageDrop }) {
     const s = store.getState();
     const sess = sessionRef.current;
     sessionRef.current = null;
+    if (guideDragRef.current) { endGuideDrag(e); return; }
     if (!sess) return;
     if (sess.kind === 'pan' || sess.kind === 'pen' || sess.kind === 'direct' || sess.kind === 'move' || sess.kind === 'resize' || sess.kind === 'rotate') {
       if (sess.kind === 'move' && !sess.moved) {
@@ -506,7 +627,7 @@ export default function CanvasArea({ onImageDrop }) {
       };
       setMarquee(null);
       if (box.w < 4 && box.h < 4) {
-        if (!e.shiftKey) s.select([]);
+        if (!e.shiftKey) { s.select([]); s.selectGuide(null); }
         return;
       }
       const hits = s.objects.filter((o) => {
@@ -674,8 +795,29 @@ export default function CanvasArea({ onImageDrop }) {
         if (file && file.type.startsWith('image/') && onImageDrop) onImageDrop(file);
       }}
     >
+      {/* Corner + rulers (drag from a ruler to create a guide) */}
+      <div className="absolute left-0 top-0 z-10 h-5 w-5 border-b border-r border-[#333] bg-[#252525]" />
+      <div className="pointer-events-none absolute inset-0 z-10">
+        <RulerStrip
+          axis="h" pan={pan} zoom={zoom}
+          onGuideDown={(e) => { if (e.button === 0) startGuideDrag('v', e, null); }}
+          onGuideMove={moveGuideDrag}
+          onGuideUp={endGuideDrag}
+        />
+        <RulerStrip
+          axis="v" pan={pan} zoom={zoom}
+          onGuideDown={(e) => { if (e.button === 0) startGuideDrag('h', e, null); }}
+          onGuideMove={moveGuideDrag}
+          onGuideUp={endGuideDrag}
+        />
+      </div>
+      {/* Inset wrapper: an <svg> is a replaced element with an intrinsic
+          300x150 size, so left/right/top/bottom alone do NOT stretch it.
+          The wrapper div stretches; the svg fills it 100%. */}
+      <div className="absolute bottom-0 left-5 right-0 top-5">
       <svg
         ref={svgRef}
+        data-testid="canvas-svg"
         className="h-full w-full touch-none"
         style={{ cursor: cursorForTool() }}
         onPointerDown={onPointerDown}
@@ -689,6 +831,15 @@ export default function CanvasArea({ onImageDrop }) {
             <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#3a3a3a" strokeWidth="0.5" />
           </pattern>
           {gradients.map((o) => {
+            if (o.gradient.type === 'radial') {
+              return (
+                <radialGradient key={o.id} id={`g-${o.id}`} cx={o.gradient.cx ?? 0.5} cy={o.gradient.cy ?? 0.5} r={o.gradient.r ?? 0.5}>
+                  {(o.gradient.stops || []).map((st, i) => (
+                    <stop key={i} offset={`${st.offset}%`} stopColor={st.color} />
+                  ))}
+                </radialGradient>
+              );
+            }
             const c = gradientCoords(o.gradient.angle ?? 90);
             return (
               <linearGradient key={o.id} id={`g-${o.id}`} x1={c.x1} y1={c.y1} x2={c.x2} y2={c.y2}>
@@ -706,6 +857,31 @@ export default function CanvasArea({ onImageDrop }) {
           {/* Artboard */}
           <rect x={0} y={0} width={artboard.w} height={artboard.h} fill={artboard.bg} stroke="#555" strokeWidth={1 / zoom} />
           {objects.map((o) => <ShapeView key={o.id} obj={o} />)}
+
+          {/* Ruler guides (not document objects: never exported or saved) */}
+          {guides.map((g) => {
+            const selected = g.id === selectedGuideId;
+            const color = selected ? '#ff5c1a' : '#4f7cff';
+            const vert = g.axis === 'v';
+            return (
+              <g
+                key={g.id}
+                onPointerDown={(e) => { if (e.button === 0) { e.stopPropagation(); startGuideDrag(g.axis, e, g.id); } }}
+                style={{ cursor: vert ? 'ew-resize' : 'ns-resize' }}
+              >
+                <line
+                  x1={vert ? g.pos : -5000} y1={vert ? -5000 : g.pos}
+                  x2={vert ? g.pos : 5000} y2={vert ? 5000 : g.pos}
+                  stroke="transparent" strokeWidth={12 / zoom} pointerEvents="stroke"
+                />
+                <line
+                  x1={vert ? g.pos : -5000} y1={vert ? -5000 : g.pos}
+                  x2={vert ? g.pos : 5000} y2={vert ? 5000 : g.pos}
+                  stroke={color} strokeWidth={1 / zoom} strokeDasharray={`${6 / zoom} ${4 / zoom}`} pointerEvents="none"
+                />
+              </g>
+            );
+          })}
 
           {/* Pen draft */}
           {penDraft && penDraft.points.length > 0 && (
@@ -788,6 +964,7 @@ export default function CanvasArea({ onImageDrop }) {
           ))}
         </g>
       </svg>
+      </div>
 
       {/* Drop hint */}
       {dropActive && (
@@ -815,8 +992,8 @@ export default function CanvasArea({ onImageDrop }) {
           onPointerDown={(e) => e.stopPropagation()}
           className="absolute z-20 resize-none overflow-hidden rounded border border-blue-500 bg-white/95 p-1 text-black outline-none"
           style={{
-            left: pan.x + editingBox.x * zoom,
-            top: pan.y + editingBox.y * zoom,
+            left: RULER + pan.x + editingBox.x * zoom,
+            top: RULER + pan.y + editingBox.y * zoom,
             width: Math.max(120, editingBox.w * zoom),
             height: Math.max(40, editingBox.h * zoom),
             fontSize: (editingObj.fontSize || 32) * zoom,

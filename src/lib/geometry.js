@@ -386,10 +386,18 @@ export function gradientCoords(angle) {
 
 export function gradientDef(obj, id) {
   if (obj.fillType !== 'gradient' || !obj.gradient) return '';
-  const angle = obj.gradient.angle ?? 90;
   const stops = (obj.gradient.stops || []).map(
     (s) => `<stop offset="${s.offset}%" stop-color="${s.color}"/>`
   ).join('');
+  if (obj.gradient.type === 'radial') {
+    // cx/cy/r are fractions of the bounding box (SVG objectBoundingBox
+    // default), so they round-trip exactly between canvas and export.
+    const cx = obj.gradient.cx ?? 0.5;
+    const cy = obj.gradient.cy ?? 0.5;
+    const r = obj.gradient.r ?? 0.5;
+    return `<radialGradient id="${id}" cx="${cx}" cy="${cy}" r="${r}">${stops}</radialGradient>`;
+  }
+  const angle = obj.gradient.angle ?? 90;
   const { x1, y1, x2, y2 } = gradientCoords(angle);
   return `<linearGradient id="${id}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}">${stops}</linearGradient>`;
 }

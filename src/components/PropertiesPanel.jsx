@@ -81,7 +81,7 @@ export default function PropertiesPanel() {
               checked={single?.fillType === 'gradient'}
               onChange={(e) => {
                 if (!single) return;
-                if (e.target.checked) updateObject(single.id, { fillType: 'gradient', gradient: { angle: 90, stops: [{ offset: 0, color: single.fill || '#4f7cff' }, { offset: 100, color: '#8b5cf6' }] } });
+                if (e.target.checked) updateObject(single.id, { fillType: 'gradient', gradient: { type: 'linear', angle: 90, cx: 0.5, cy: 0.5, r: 0.5, stops: [{ offset: 0, color: single.fill || '#4f7cff' }, { offset: 100, color: '#8b5cf6' }] } });
                 else updateObject(single.id, { fillType: 'solid' });
               }}
             />
@@ -103,10 +103,37 @@ export default function PropertiesPanel() {
         )}
         {gradient && (
           <div className="mt-2 rounded border border-[#444] p-2">
-            <Row label="Angle">
-              <input type="range" min={0} max={360} value={gradient.angle ?? 90} onChange={(e) => setGradient({ angle: Number(e.target.value) })} className="w-24" />
-              <span className="w-8 text-right text-gray-300">{gradient.angle ?? 90}°</span>
+            <Row label="Type">
+              <select
+                value={gradient.type === 'radial' ? 'radial' : 'linear'}
+                onChange={(e) => setGradient({ type: e.target.value })}
+                className="rounded border border-[#444] bg-[#2a2a2a] px-1 py-1 text-xs text-white outline-none"
+              >
+                <option value="linear">Linear</option>
+                <option value="radial">Radial</option>
+              </select>
             </Row>
+            {gradient.type === 'radial' ? (
+              <>
+                <Row label="Center X">
+                  <input type="range" min={0} max={100} value={Math.round((gradient.cx ?? 0.5) * 100)} onChange={(e) => setGradient({ cx: Number(e.target.value) / 100 })} className="w-24" />
+                  <span className="w-8 text-right text-gray-300">{Math.round((gradient.cx ?? 0.5) * 100)}%</span>
+                </Row>
+                <Row label="Center Y">
+                  <input type="range" min={0} max={100} value={Math.round((gradient.cy ?? 0.5) * 100)} onChange={(e) => setGradient({ cy: Number(e.target.value) / 100 })} className="w-24" />
+                  <span className="w-8 text-right text-gray-300">{Math.round((gradient.cy ?? 0.5) * 100)}%</span>
+                </Row>
+                <Row label="Radius">
+                  <input type="range" min={5} max={150} value={Math.round((gradient.r ?? 0.5) * 100)} onChange={(e) => setGradient({ r: Number(e.target.value) / 100 })} className="w-24" />
+                  <span className="w-8 text-right text-gray-300">{Math.round((gradient.r ?? 0.5) * 100)}%</span>
+                </Row>
+              </>
+            ) : (
+              <Row label="Angle">
+                <input type="range" min={0} max={360} value={gradient.angle ?? 90} onChange={(e) => setGradient({ angle: Number(e.target.value) })} className="w-24" />
+                <span className="w-8 text-right text-gray-300">{gradient.angle ?? 90}°</span>
+              </Row>
+            )}
             {gradient.stops.map((st, i) => (
               <div key={i} className="flex items-center gap-1 py-0.5">
                 <input type="color" value={st.color} onChange={(e) => setGradient({ stops: gradient.stops.map((s, j) => (j === i ? { ...s, color: e.target.value } : s)) })} className="h-6 w-8 cursor-pointer rounded border border-[#444] bg-transparent" />

@@ -59,6 +59,18 @@ export const useStore = create((set, get) => ({
   penDraft: null,
   editingTextId: null,
   showTemplates: false,
+  // Ruler guides: canvas-coordinate lines. Deliberately NOT part of the
+  // saved document (autosave stores only artboard + objects), so guides
+  // never persist across reloads and never change the JSON format.
+  guides: [],
+  selectedGuideId: null,
+  addGuide: (guide) => set((s) => ({ guides: [...s.guides, guide] })),
+  moveGuide: (id, pos) => set((s) => ({ guides: s.guides.map((g) => (g.id === id ? { ...g, pos } : g)) })),
+  removeGuide: (id) => set((s) => ({
+    guides: s.guides.filter((g) => g.id !== id),
+    selectedGuideId: s.selectedGuideId === id ? null : s.selectedGuideId,
+  })),
+  selectGuide: (id) => set({ selectedGuideId: id }),
 
   setTool: (tool) => set({ tool, penDraft: null, editingTextId: null }),
   setZoom: (zoom) => set({ zoom: Math.min(8, Math.max(0.1, zoom)) }),
@@ -239,10 +251,12 @@ export const useStore = create((set, get) => ({
 
   newDocument: (artboard, objects) => set({
     artboard, objects, selection: [], past: [], future: [], penDraft: null, editingTextId: null,
+    guides: [], selectedGuideId: null,
   }),
 
   loadDocument: (doc) => set({
     artboard: doc.artboard, objects: doc.objects, selection: [], past: [], future: [], penDraft: null, editingTextId: null,
+    guides: [], selectedGuideId: null,
   }),
 
   getSelectedObjects: () => {

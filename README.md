@@ -23,6 +23,11 @@ Run it locally (see below) or deploy the `dist/` folder to any static host
   1920×1080, business card, custom) and artboard background color.
 - Artboard-aware alignment: a single selection aligns to the artboard,
   multiple selections align to their shared bounding box.
+- **Rulers + guides:** top and left rulers with tick marks that follow zoom
+  and pan. Drag from a ruler onto the canvas to create a guide line; drag a
+  guide to move it; drag it off the canvas — or click it and press Delete —
+  to remove it. Guides are a drawing aid only: they are never exported and
+  do not persist across reloads (they are not part of the saved JSON format).
 
 ### Tools (left toolbar)
 | Tool | Shortcut | What it does |
@@ -50,10 +55,11 @@ Run it locally (see below) or deploy the `dist/` folder to any static host
 
 ### Panels (right side)
 - **Layers:** list, rename (double-click), visibility eye, lock, reorder.
-- **Properties:** fill color, gradients (linear, 2+ stops, angle), stroke color
-  + width, opacity, blend mode, corner radius, polygon sides, star points /
-  inner ratio, font family / size / weight, text content, position, size,
-  rotation. Includes swatches and recent colors.
+- **Properties:** fill color, gradients (linear with angle, or radial with
+  center + radius, 2+ stops), stroke color + width, opacity, blend mode,
+  corner radius, polygon sides, star points / inner ratio, font family /
+  size / weight, text content, position, size, rotation. Includes swatches
+  and recent colors.
 - **Align:** left / center / right / top / middle / bottom, distribute
   horizontally / vertically (3+ objects).
 
@@ -88,6 +94,21 @@ Measured on this build machine (Node, synthetic 1024×1024 banded test image,
 8 colors): ~660 ms per trace. Real photos with more detail take longer, but
 the downscale cap keeps it in the same ballpark.
 
+### SVG import
+Bring existing vector art in as one centered, selected group:
+- **Import SVG** in the top bar opens an `.svg` file, or **Paste SVG** reads
+  SVG markup from the clipboard — or just press **Ctrl/Cmd+V** when the
+  clipboard holds SVG markup (e.g. copied out of Figma or Illustrator).
+- Supported: rect, circle, ellipse, line, polygon, polyline, path (including
+  bezier, quadratic and arc segments), text, groups, transforms, solid fills,
+  and linear/radial gradients from `<defs>`. The imported group is fully
+  editable (ungroup it to edit members).
+- Safety: parsing uses DOMParser only and reads whitelisted attributes, so
+  `<script>`, event attributes, stylesheets, `<use>` and external images are
+  never executed or loaded. CSS classes, clip paths, masks, filters and
+  patterns are not applied; text width is estimated; arcs are approximated
+  as short line segments.
+
 ### History, files, and export
 - Undo / redo (Ctrl+Z / Ctrl+Shift+Z), snapshot stack capped at 100 steps.
 - **New / Open (JSON) / Save (JSON download)**, autosave to localStorage with
@@ -102,7 +123,8 @@ V Select · A Direct · P Pen · R Rectangle · E Ellipse · L Line · T Text ·
 B Brush · H Hand · Space+drag pan · Ctrl+wheel zoom · Shift constrain ·
 Ctrl+D duplicate · Ctrl+Z undo · Ctrl+Shift+Z / Ctrl+Y redo · Del delete ·
 Arrows nudge (Shift = 10px) · Enter finishes a pen path · Esc cancels /
-deselects.
+deselects · Ctrl/Cmd+V pastes SVG · **? opens the full shortcut help** (also
+via the **Help** button in the top bar).
 
 ## Performance
 
@@ -111,8 +133,8 @@ zustand with selectors so panels don't re-render the whole tree on every
 pointer move; shapes are memoized and drag updates preserve object identity
 for unchanged objects; drag/resize work is batched through
 requestAnimationFrame; the SVG node count stays proportional to object count
-(no per-pixel work). Production bundle: ~328 KB JS (gzip ~101 KB) plus a
-16 KB stylesheet.
+(no per-pixel work). Production bundle: ~349 KB JS (gzip ~108 KB) plus an
+18 KB stylesheet.
 
 ## Run it
 
@@ -122,20 +144,39 @@ npm run dev      # local dev server
 npm run build    # production build in dist/
 npm run preview  # serve the production build
 npm test         # vitest unit tests
+npm run test:e2e # Playwright smoke tests against the production build
 ```
 
 ## Tests
 
 Vitest unit tests cover the pure geometry/utils layer (bezier path building,
 bounding boxes, transform math, snap, polygon generation, hit testing, SVG
-serialization round-trip) and the tracing wrapper (a tiny synthetic image
+serialization round-trip), the tracing wrapper (a tiny synthetic image
 produces non-empty SVG path output; color-count and threshold options change
-the output as expected; background handling drops the white layer).
+the output as expected; background handling drops the white layer), the SVG
+importer (element mapping, transforms, gradients, security exclusions, path
+data including arcs) and radial gradient export.
 
-Current result: **36/36 tests pass** (27 geometry + 9 trace), and the
-production build passes. Playwright E2E is out of scope for this environment
-(no browser automation available here), so editor interactions are covered at
-the unit level plus manual verification — not claimed as E2E-tested.
+Playwright smoke tests run against the production build (`vite preview`):
+studio renders, rectangle draw + fill change, SVG export download. GitHub
+Actions (`.github/workflows/ci.yml`) runs unit tests, the production build,
+and the Playwright suite on every push/PR to main.
+
+Current result: **55/55 unit tests pass** (27 geometry + 9 trace + 14 SVG
+import + 5 gradients) and **3/3 Playwright smoke tests pass**.
+
+## Changelog
+
+### Phase 1 (2026-10-24) — reliability + quick wins
+- React error boundary: a render crash now shows a recovery screen (Reload /
+  Start fresh) instead of a blank page.
+- Playwright E2E smoke tests + GitHub Actions CI (unit tests, build, E2E on
+  every push/PR to main).
+- SVG import: file picker, Paste SVG button, and Ctrl/Cmd+V paste.
+- Rulers + draggable guides (not saved, not exported).
+- Radial gradients (linear behavior unchanged).
+- Keyboard shortcut help modal (`?` / Help button).
+- Meta description + Open Graph tags in index.html.
 
 ## Not in v1
 

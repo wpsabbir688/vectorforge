@@ -9,8 +9,10 @@ import AlignPanel from './components/AlignPanel.jsx';
 import StatusBar from './components/StatusBar.jsx';
 import TemplateModal from './components/TemplateModal.jsx';
 import TraceModal from './components/TraceModal.jsx';
+import ShortcutHelpModal from './components/ShortcutHelpModal.jsx';
 import { TEMPLATES } from './lib/templates.js';
 import { moveObject } from './lib/geometry.js';
+import { importSvgToGroup } from './lib/svgImport.js';
 
 const AUTOSAVE_KEY = 'vectorforge-autosave-v1';
 
@@ -30,6 +32,7 @@ export default function App() {
   const [traceFile, setTraceFile] = useState(null);
   const [traceOpen, setTraceOpen] = useState(false);
   const [smallNotice, setSmallNotice] = useState(true);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const showTemplates = useStore((s) => s.showTemplates);
   const setShowTemplates = useStore((s) => s.setShowTemplates);
   const loadDocument = useStore((s) => s.loadDocument);
@@ -74,10 +77,15 @@ export default function App() {
       if (mod && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); s.redo(); return; }
       if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); s.duplicateSelected(); return; }
       if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); return; } // Save is via the Save button (download)
-      if (e.key === 'Delete' || e.key === 'Backspace') { s.deleteSelected(); return; }
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (s.selectedGuideId) { s.removeGuide(s.selectedGuideId); return; }
+        s.deleteSelected();
+        return;
+      }
       if (e.key === 'Escape') {
         if (s.penDraft) { s.setPenDraft(null); return; }
         if (s.editingTextId) { s.setEditingTextId(null); return; }
+        if (s.selectedGuideId) { s.selectGuide(null); return; }
         s.select([]);
         return;
       }
@@ -103,6 +111,7 @@ export default function App() {
         s.endDrag();
         return;
       }
+      if (e.key === '?') { setShowShortcuts(true); return; }
       const toolKeys = { v: 'select', a: 'direct', p: 'pen', r: 'rect', e: 'ellipse', l: 'line', t: 'text', b: 'brush', h: 'hand' };
       const k = e.key.toLowerCase();
       if (!mod && toolKeys[k]) s.setTool(toolKeys[k]);
@@ -116,9 +125,42 @@ export default function App() {
     setTraceOpen(true);
   };
 
+  // Import SVG markup as one centered, selected group. Used by the TopBar
+  // buttons and by Ctrl/Cmd+V paste (see the paste listener below).
+  const importSvg = (text) => {
+    try {
+      const s = useStore.getState();
+      const group = importSvgToGroup(text, s.artboard);
+      if (!group) {
+        alert('That SVG has no shapes VectorForge can import.');
+        return;
+      }
+      s.addObject(group);
+    } catch {
+      alert('Could not import that SVG — it may be malformed.');
+    }
+  };
+
+  // Paste SVG markup from the clipboard (e.g. copied out of Figma or
+  // Illustrator). Normal text pasting inside inputs is left untouched.
+  useEffect(() => {
+    const onPaste = (e) => {
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const text = e.clipboardData?.getData('text') || '';
+      if (text.includes('<svg')) {
+        e.preventDefault();
+        importSvg(text);
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#1e1e1e] text-gray-100">
-      <TopBar onTraceClick={() => openTrace(null)} />
+      <TopBar onTraceClick={() => openTrace(null)} onImportSvg={importSvg} onShowShortcuts={() => setShowShortcuts(true)} />
       {smallNotice && (
         <div className="flex items-center justify-between bg-amber-600 px-3 py-1 text-xs text-white sm:hidden">
           <span>VectorForge is built for desktop — this small screen will feel cramped.</span>
@@ -138,12 +180,16 @@ export default function App() {
               V Select · A Direct · P Pen (Enter to finish, click first point to close) · R Rect · E Ellipse · L Line · T Text · B Brush · H Hand ·
               Space+drag pan · Ctrl+wheel zoom · Shift constrains · Ctrl+D duplicate · Ctrl+Z undo · Del delete · Arrows nudge.
             </p>
+            <button onClick={() => setShowShortcuts(true)} className="mt-1 px-1 text-[11px] font-semibold text-blue-400 hover:text-blue-300">
+              Show all shortcuts (?)
+            </button>
           </div>
         </div>
       </div>
       <StatusBar />
       {showTemplates && <TemplateModal onClose={() => setShowTemplates(false)} />}
       {traceOpen && <TraceModal file={traceFile} onClose={() => setTraceOpen(false)} />}
+      {showShortcuts && <ShortcutHelpModal onClose={() => setShowShortcuts(false)} />}
     </div>
   );
 }
