@@ -111,6 +111,13 @@ export function bboxOf(obj) {
   if (obj.type === 'traced' || obj.type === 'image') {
     return { x: obj.x, y: obj.y, w: obj.w, h: obj.h };
   }
+  // Component instance: the box is the master's box, scaled. Rotation is
+  // applied by rotatedBboxOf (about the box center), matching how
+  // components.js resolves instances (rotation about the master center).
+  if (obj.type === 'instance') {
+    const s = obj.scale || 1;
+    return { x: obj.x, y: obj.y, w: (obj.masterW || 0) * s, h: (obj.masterH || 0) * s };
+  }
   switch (obj.type) {
     case 'rect':
     case 'ellipse':
@@ -225,6 +232,15 @@ export function scaleObject(obj, oldBox, newBox) {
     next.children = (obj.children || []).map((c) => scaleObject(c, oldBox, newBox));
     return next;
   }
+  // Instances scale uniformly (width-driven) so master proportions survive;
+  // the box origin follows newBox so the fixed handle corner stays put.
+  if (obj.type === 'instance') {
+    const factor = oldBox.w === 0 ? 1 : newBox.w / oldBox.w;
+    next.x = newBox.x;
+    next.y = newBox.y;
+    next.scale = Math.max(0.05, (obj.scale || 1) * factor);
+    return next;
+  }
   if (obj.type === 'traced' || obj.type === 'image') {
     next.x = newBox.x;
     next.y = newBox.y;
@@ -290,6 +306,11 @@ export function moveObject(obj, dx, dy) {
   const next = { ...obj };
   if (obj.type === 'group') {
     next.children = (obj.children || []).map((c) => moveObject(c, dx, dy));
+    return next;
+  }
+  if (obj.type === 'instance') {
+    next.x = obj.x + dx;
+    next.y = obj.y + dy;
     return next;
   }
   if (obj.type === 'traced' || obj.type === 'image') {
@@ -608,7 +629,9 @@ export function migrateDocument(doc) {
       ? o.artboardId
       : activeArtboardId,
   }));
-  return { artboards, activeArtboardId, objects };
+  // Components (Phase 3) are additive: old files simply have none.
+  const components = Array.isArray(doc.components) ? doc.components : [];
+  return { artboards, activeArtboardId, objects, components };
 }
 
 // Parse a VectorForge JSON document back into objects (round-trip safe).

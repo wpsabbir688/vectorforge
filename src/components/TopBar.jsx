@@ -8,6 +8,8 @@ import { useStore } from '../store/useStore.js';
 import { ARTBOARD_PRESETS } from '../lib/templates.js';
 import { exportSvg, exportPng, copySvgToClipboard, downloadFile } from '../lib/export.js';
 import { parseDocument } from '../lib/geometry.js';
+import { expandInstances } from '../lib/components.js';
+import { t } from '../lib/i18n.js';
 import AssetExportPanel from './AssetExportPanel.jsx';
 
 function BarButton({ title, onClick, disabled, children, active }) {
@@ -23,7 +25,9 @@ function BarButton({ title, onClick, disabled, children, active }) {
   );
 }
 
-export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts }) {
+export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts, onReplayTour }) {
+  const language = useStore((s) => s.language);
+  const setLanguage = useStore((s) => s.setLanguage);
   const zoom = useStore((s) => s.zoom);
   const setZoom = useStore((s) => s.setZoom);
   const setPan = useStore((s) => s.setPan);
@@ -67,16 +71,17 @@ export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts }) {
       if (text && text.includes('<svg')) {
         if (onImportSvg) onImportSvg(text);
       } else {
-        alert('Clipboard does not contain SVG markup. Copy an SVG (e.g. from Figma) and try again, or use Ctrl/Cmd+V.');
+        alert(t(language, 'alertPasteNoSvg'));
       }
     } catch {
-      alert('Could not read the clipboard in this browser. Copy the SVG, then paste with Ctrl/Cmd+V instead.');
+      alert(t(language, 'alertPasteClipboardFail'));
     }
   };
 
   const getDoc = () => {
     const s = useStore.getState();
-    return { app: 'vectorforge', version: 2, artboards: s.artboards, activeArtboardId: s.activeArtboardId, objects: s.objects };
+    // Components ride along (additive field; old readers ignore it).
+    return { app: 'vectorforge', version: 2, artboards: s.artboards, activeArtboardId: s.activeArtboardId, objects: s.objects, components: s.components };
   };
 
   const doSave = () => {
@@ -90,22 +95,23 @@ export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts }) {
         const doc = parseDocument(reader.result);
         loadDocument(doc);
       } catch {
-        alert('That file is not a VectorForge document.');
+        alert(t(language, 'alertOpenInvalid'));
       }
     };
     reader.readAsText(file);
   };
 
   // Single-artboard quick exports always use the ACTIVE artboard.
+  // Instances are expanded first: the serializer only knows plain shapes.
   const doExportSvg = () => {
     const s = useStore.getState();
-    downloadFile('vectorforge.svg', exportSvg(s.getActiveArtboard(), s.getActiveObjects()), 'image/svg+xml');
+    downloadFile('vectorforge.svg', exportSvg(s.getActiveArtboard(), expandInstances(s.getActiveObjects(), s.components)), 'image/svg+xml');
   };
 
   const doExportPng = async (scale) => {
     const s = useStore.getState();
     try {
-      await exportPng(s.getActiveArtboard(), s.getActiveObjects(), scale);
+      await exportPng(s.getActiveArtboard(), expandInstances(s.getActiveObjects(), s.components), scale);
     } catch (err) {
       alert(err.message);
     }
@@ -114,56 +120,67 @@ export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts }) {
   const doCopySvg = async () => {
     const s = useStore.getState();
     try {
-      await copySvgToClipboard(s.getActiveArtboard(), s.getActiveObjects());
-      alert('SVG copied to clipboard.');
+      await copySvgToClipboard(s.getActiveArtboard(), expandInstances(s.getActiveObjects(), s.components));
+      alert(t(language, 'alertCopyOk'));
     } catch {
-      alert('Clipboard copy failed in this browser.');
+      alert(t(language, 'alertCopyFail'));
     }
   };
 
   return (
-    <div className="flex h-12 items-center gap-1 border-b border-[#333] bg-[#252525] px-2">
+    <div data-tour="topbar" className="flex h-12 items-center gap-1 overflow-x-auto border-b border-[#333] bg-[#252525] px-2">
       <span className="mr-2 text-sm font-bold tracking-tight text-white">
         Vector<span className="text-blue-500">Forge</span>
       </span>
-      <BarButton title="New document" onClick={() => { if (confirm('Start a new document? Unsaved changes will be lost (autosave keeps a copy).')) newDocument({ w: 1080, h: 1080, bg: '#ffffff', name: 'Social 1080 × 1080' }, []); }}>
-        <FilePlus2 size={16} /> New
+      <BarButton title={t(language, 'titleNew')} onClick={() => { if (confirm(t(language, 'alertNewConfirm'))) newDocument({ w: 1080, h: 1080, bg: '#ffffff', name: 'Social 1080 × 1080' }, []); }}>
+        <FilePlus2 size={16} /> {t(language, 'new')}
       </BarButton>
-      <BarButton title="Open VectorForge JSON" onClick={() => fileRef.current?.click()}>
-        <FolderOpen size={16} /> Open
+      <BarButton title={t(language, 'titleOpen')} onClick={() => fileRef.current?.click()}>
+        <FolderOpen size={16} /> {t(language, 'open')}
       </BarButton>
       <input ref={fileRef} type="file" accept=".json,application/json" className="hidden" onChange={(e) => { if (e.target.files[0]) doOpen(e.target.files[0]); e.target.value = ''; }} />
-      <BarButton title="Save as JSON" onClick={doSave}><Save size={16} /> Save</BarButton>
-      <BarButton title="Import an SVG file as a group" onClick={() => svgFileRef.current?.click()}>
-        <FolderOpen size={16} /> Import SVG
+      <BarButton title={t(language, 'titleSave')} onClick={doSave}><Save size={16} /> {t(language, 'save')}</BarButton>
+      <BarButton title={t(language, 'titleImportSvg')} onClick={() => svgFileRef.current?.click()}>
+        <FolderOpen size={16} /> {t(language, 'importSvg')}
       </BarButton>
       <input ref={svgFileRef} type="file" accept=".svg,image/svg+xml" className="hidden" onChange={(e) => { if (e.target.files[0]) doImportSvgFile(e.target.files[0]); e.target.value = ''; }} />
-      <BarButton title="Paste SVG markup from the clipboard" onClick={doPasteSvg}>Paste SVG</BarButton>
-      <BarButton title="Start from a template" onClick={() => setShowTemplates(true)}><LayoutTemplate size={16} /> Templates</BarButton>
-      <BarButton title="Keyboard shortcuts (?)" onClick={onShowShortcuts}>Help</BarButton>
+      <BarButton title={t(language, 'titlePasteSvg')} onClick={doPasteSvg}>{t(language, 'pasteSvg')}</BarButton>
+      <BarButton title={t(language, 'titleTemplates')} onClick={() => setShowTemplates(true)}><LayoutTemplate size={16} /> {t(language, 'templates')}</BarButton>
+      <BarButton title={t(language, 'titleHelp')} onClick={onShowShortcuts}>{t(language, 'help')}</BarButton>
+      {onReplayTour && <BarButton title={t(language, 'tourReplay')} onClick={onReplayTour}>Tour</BarButton>}
+      <span className="ml-1 flex items-center gap-0.5" title={t(language, 'titleLanguage')}>
+        <button
+          onClick={() => setLanguage('en')}
+          className={`h-6 rounded-l-md px-1.5 text-[11px] font-semibold ${language === 'en' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-[#3a3a3a]'}`}
+        >EN</button>
+        <button
+          onClick={() => setLanguage('bn')}
+          className={`h-6 rounded-r-md px-1.5 text-[11px] font-semibold ${language === 'bn' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-[#3a3a3a]'}`}
+        >BN</button>
+      </span>
       <div className="mx-1 h-6 w-px bg-[#444]" />
-      <BarButton title="Undo (Ctrl+Z)" onClick={undo} disabled={past.length === 0}><Undo2 size={16} /></BarButton>
-      <BarButton title="Redo (Ctrl+Shift+Z)" onClick={redo} disabled={future.length === 0}><Redo2 size={16} /></BarButton>
+      <BarButton title={t(language, 'titleUndo')} onClick={undo} disabled={past.length === 0}><Undo2 size={16} /></BarButton>
+      <BarButton title={t(language, 'titleRedo')} onClick={redo} disabled={future.length === 0}><Redo2 size={16} /></BarButton>
       <div className="mx-1 h-6 w-px bg-[#444]" />
-      <BarButton title="Zoom out" onClick={() => setZoom(zoom / 1.2)}><ZoomOut size={16} /></BarButton>
+      <BarButton title={t(language, 'titleZoomOut')} onClick={() => setZoom(zoom / 1.2)}><ZoomOut size={16} /></BarButton>
       <button
-        title="Reset zoom and center artboard"
+        title={t(language, 'titleResetZoom')}
         onClick={() => { setZoom(1); setPan({ x: 40, y: 40 }); }}
         className="h-8 rounded-md px-2 text-xs text-gray-200 hover:bg-[#3a3a3a]"
       >
         {Math.round(zoom * 100)}%
       </button>
-      <BarButton title="Zoom in" onClick={() => setZoom(zoom * 1.2)}><ZoomIn size={16} /></BarButton>
-      <BarButton title="Fit artboard" onClick={() => { setZoom(1); setPan({ x: 40, y: 40 }); }}><Maximize size={16} /></BarButton>
+      <BarButton title={t(language, 'titleZoomIn')} onClick={() => setZoom(zoom * 1.2)}><ZoomIn size={16} /></BarButton>
+      <BarButton title={t(language, 'titleFit')} onClick={() => { setZoom(1); setPan({ x: 40, y: 40 }); }}><Maximize size={16} /></BarButton>
       <div className="mx-1 h-6 w-px bg-[#444]" />
-      <BarButton title="Trace a raster image into vectors" onClick={onTraceClick}><ImagePlus size={16} /> Trace</BarButton>
-      <BarButton title="Export SVG" onClick={doExportSvg}><Download size={16} /> SVG</BarButton>
-      <BarButton title="Export PNG at 2x" onClick={() => doExportPng(2)}><ImageDown size={16} /> PNG</BarButton>
-      <BarButton title="Copy SVG to clipboard" onClick={doCopySvg}><ClipboardCopy size={16} /></BarButton>
-      <BarButton title="Export the active artboard (or selection) at multiple sizes" onClick={() => setShowAssets(true)}><ImageDown size={16} /> Assets</BarButton>
+      <BarButton title={t(language, 'titleTrace')} onClick={onTraceClick}><ImagePlus size={16} /> {t(language, 'trace')}</BarButton>
+      <BarButton title={t(language, 'titleExportSvg')} onClick={doExportSvg}><Download size={16} /> {t(language, 'exportSvg')}</BarButton>
+      <BarButton title={t(language, 'titleExportPng')} onClick={() => doExportPng(2)}><ImageDown size={16} /> {t(language, 'exportPng')}</BarButton>
+      <BarButton title={t(language, 'titleCopySvg')} onClick={doCopySvg}><ClipboardCopy size={16} /></BarButton>
+      <BarButton title={t(language, 'titleAssets')} onClick={() => setShowAssets(true)}><ImageDown size={16} /> {t(language, 'assets')}</BarButton>
       <div className="mx-1 h-6 w-px bg-[#444]" />
-      <BarButton title="Toggle grid" onClick={toggleGrid} active={grid}><Grid3x3 size={16} /></BarButton>
-      <BarButton title="Toggle snap to grid" onClick={toggleSnap} active={snap}><Magnet size={16} /></BarButton>
+      <BarButton title={t(language, 'titleGrid')} onClick={toggleGrid} active={grid}><Grid3x3 size={16} /></BarButton>
+      <BarButton title={t(language, 'titleSnap')} onClick={toggleSnap} active={snap}><Magnet size={16} /></BarButton>
       {/* Artboard switcher: switch / add / duplicate / delete / rename */}
       {renaming ? (
         <input
@@ -186,12 +203,12 @@ export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts }) {
           ))}
         </select>
       )}
-      <BarButton title="Add artboard" onClick={() => addArtboard({ name: `Artboard ${artboards.length + 1}`, w: 1080, h: 1080, bg: '#ffffff' })}><Plus size={16} /></BarButton>
-      <BarButton title="Duplicate active artboard (with its objects)" onClick={duplicateArtboard}><CopyPlus size={16} /></BarButton>
-      <BarButton title="Delete active artboard" onClick={() => { if (artboards.length > 1 && confirm(`Delete artboard "${artboard.name}" and its objects?`)) deleteArtboard(); }} disabled={artboards.length <= 1}><Trash2 size={16} /></BarButton>
-      <BarButton title="Rename active artboard" onClick={() => { setNameDraft(artboard.name); setRenaming(true); }}><Pencil size={16} /></BarButton>
+      <BarButton title={t(language, 'titleAddArtboard')} onClick={() => addArtboard({ name: `Artboard ${artboards.length + 1}`, w: 1080, h: 1080, bg: '#ffffff' })}><Plus size={16} /></BarButton>
+      <BarButton title={t(language, 'titleDupArtboard')} onClick={duplicateArtboard}><CopyPlus size={16} /></BarButton>
+      <BarButton title={t(language, 'titleDelArtboard')} onClick={() => { if (artboards.length > 1 && confirm(t(language, 'alertDelArtboard', { name: artboard.name }))) deleteArtboard(); }} disabled={artboards.length <= 1}><Trash2 size={16} /></BarButton>
+      <BarButton title={t(language, 'titleRenameArtboard')} onClick={() => { setNameDraft(artboard.name); setRenaming(true); }}><Pencil size={16} /></BarButton>
       <select
-        title="Resize active artboard to a preset"
+        title={t(language, 'titleResizePreset')}
         value={artboard.name}
         onChange={(e) => {
           const p = ARTBOARD_PRESETS.find((x) => x.name === e.target.value);
@@ -204,7 +221,7 @@ export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts }) {
         ))}
       </select>
       <label className="ml-1 flex items-center gap-1 text-xs text-gray-300">
-        Bg
+        {t(language, 'bg')}
         <input
           type="color"
           value={artboard.bg}

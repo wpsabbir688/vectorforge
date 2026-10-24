@@ -5,6 +5,8 @@ import fs from 'node:fs/promises';
 // page), draw, recolor, and export. This is the test that would have caught
 // the 2026-10-24 missing-import outage, where no test ever rendered the app.
 test.beforeEach(async ({ page }) => {
+  // The first-run tour overlay would intercept clicks; seed it as seen.
+  await page.addInitScript(() => localStorage.setItem('vectorforge-tour-seen', '1'));
   await page.goto('/');
   // Boot completes when the default logo template's layers appear.
   await expect(page.getByText('Badge star')).toBeVisible({ timeout: 15000 });

@@ -6,6 +6,7 @@ import {
   rotateObjectGeometry, snapValue, gradientCoords, round2, pathDOf,
   findSmartSnap,
 } from '../lib/geometry.js';
+import { expandInstances } from '../lib/components.js';
 
 // ---------- shape rendering (memoized: unchanged objects keep identity) ----------
 function fillOf(obj) {
@@ -212,10 +213,13 @@ export default function CanvasArea({ onImageDrop }) {
   const editingTextId = useStore((s) => s.editingTextId);
   const guides = useStore((s) => s.guides);
   const selectedGuideId = useStore((s) => s.selectedGuideId);
+  const components = useStore((s) => s.components);
 
   const svgRef = useRef(null);
   const containerRef = useRef(null);
   const sessionRef = useRef(null);
+  const pointersRef = useRef(new Map()); // active pointers, for pinch gestures
+  const pinchRef = useRef(null); // { d0, mid0, zoom0, pan0 } while pinching
   const guideDragRef = useRef(null); // { id, axis } while a guide is dragged
   const spaceRef = useRef(false);
   const rafRef = useRef(0);
@@ -263,20 +267,27 @@ export default function CanvasArea({ onImageDrop }) {
     return bboxUnion(selectedObjects.map((o) => rotatedBboxOf(o)));
   }, [selectedObjects]);
 
-  const gradients = useMemo(() => collectGradients(objects), [objects]);
+  // Rendering expands component instances into plain objects (fresh ids,
+  // internal references remapped); hit-testing and selection keep using
+  // the real objects above, so an instance stays one selectable object.
+  const renderObjects = useMemo(() => expandInstances(objects, components), [objects, components]);
+
+  const gradients = useMemo(() => collectGradients(renderObjects), [renderObjects]);
 
   // Text-on-path resolution: text id -> referenced path id, but only when
   // the path is a visible top-level object on the active artboard.
+  // (Resolved instance members are top-level here, so in-master text-on-
+  // path works too.)
   const textPathRefs = useMemo(() => {
     const m = {};
-    for (const o of objects) {
+    for (const o of renderObjects) {
       if (o.type === 'text' && o.pathId) {
-        const target = objects.find((p) => p.id === o.pathId && p.type === 'path' && p.visible !== false);
+        const target = renderObjects.find((p) => p.id === o.pathId && p.type === 'path' && p.visible !== false);
         if (target) m[o.id] = target.id;
       }
     }
     return m;
-  }, [objects]);
+  }, [renderObjects]);
 
   function hitTop(pt) {
     for (let i = objects.length - 1; i >= 0; i--) {
@@ -332,6 +343,28 @@ export default function CanvasArea({ onImageDrop }) {
   }
 
   function onPointerDown(e) {
+    // Multi-touch: a second finger cancels any single-pointer session and
+    // starts a pinch (zoom + two-finger pan). Mouse users never hit this:
+    // they only ever have one active pointer.
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointersRef.current.size === 2) {
+      const s = store.getState();
+      const sess = sessionRef.current;
+      if (sess && ['move', 'resize', 'rotate', 'direct'].includes(sess.kind)) s.endDrag();
+      if (sess && sess.kind === 'pen' && s.penDraft) {
+        s.setPenDraft({ points: s.penDraft.points.slice(0, -1) });
+      }
+      sessionRef.current = null;
+      setPreview(null); setMarquee(null); setBrushPreview(null); setSmartGuides([]);
+      const [a, b] = [...pointersRef.current.values()];
+      pinchRef.current = {
+        d0: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+        mid0: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+        zoom0: s.zoom, pan0: { ...s.pan },
+      };
+      return;
+    }
+    if (pointersRef.current.size > 2) return;
     if (e.button === 1 || spaceRef.current || tool === 'hand') {
       sessionRef.current = { kind: 'pan', startX: e.clientX, startY: e.clientY, pan: { ...store.getState().pan } };
       return;
@@ -456,6 +489,23 @@ export default function CanvasArea({ onImageDrop }) {
 
   function onPointerMove(e) {
     const s = store.getState();
+    if (pointersRef.current.has(e.pointerId)) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+    // Pinch: zoom around the initial midpoint's canvas point, so the
+    // content under the fingers stays under the fingers.
+    if (pinchRef.current && pointersRef.current.size >= 2) {
+      const [a, b] = [...pointersRef.current.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const p = pinchRef.current;
+      const nz = Math.min(8, Math.max(0.1, p.zoom0 * (d / p.d0)));
+      const rect = svgRef.current.getBoundingClientRect();
+      const anchor = { x: (p.mid0.x - rect.left - p.pan0.x) / p.zoom0, y: (p.mid0.y - rect.top - p.pan0.y) / p.zoom0 };
+      s.setZoom(nz);
+      s.setPan({ x: (mid.x - rect.left) - anchor.x * nz, y: (mid.y - rect.top) - anchor.y * nz });
+      return;
+    }
     const pt = toCanvas(e);
     s.setCursor({ x: Math.round(pt.x), y: Math.round(pt.y) });
     if (guideDragRef.current) { moveGuideDrag(e); return; }
@@ -688,6 +738,14 @@ export default function CanvasArea({ onImageDrop }) {
   }
 
   function onPointerUp(e) {
+    const wasPinch = !!pinchRef.current;
+    pointersRef.current.delete(e.pointerId);
+    if (wasPinch) {
+      if (pointersRef.current.size < 2) pinchRef.current = null;
+      sessionRef.current = null;
+      setSmartGuides([]);
+      return;
+    }
     const s = store.getState();
     const sess = sessionRef.current;
     sessionRef.current = null;
@@ -871,7 +929,8 @@ export default function CanvasArea({ onImageDrop }) {
   return (
     <div
       ref={containerRef}
-      className="relative flex-1 overflow-hidden bg-[#1e1e1e]"
+      data-tour="canvas"
+      className="relative min-h-[55vh] flex-1 overflow-hidden bg-[#1e1e1e] lg:min-h-0"
       onDragOver={(e) => { e.preventDefault(); setDropActive(true); }}
       onDragLeave={() => setDropActive(false)}
       onDrop={(e) => {
@@ -909,6 +968,7 @@ export default function CanvasArea({ onImageDrop }) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
         onWheel={onWheel}
         onDoubleClick={onDoubleClick}
       >
@@ -936,7 +996,7 @@ export default function CanvasArea({ onImageDrop }) {
             );
           })}
           {/* Clipping masks: mask geometry lives in <clipPath>, never drawn */}
-          {objects.filter((o) => o.isMask && o.visible !== false).map((m) => (
+          {renderObjects.filter((o) => o.isMask && o.visible !== false).map((m) => (
             <clipPath key={m.id} id={`vf-clip-${m.id}`}>
               <ShapeView obj={m} asClip />
             </clipPath>
@@ -948,7 +1008,7 @@ export default function CanvasArea({ onImageDrop }) {
           )}
           {/* Artboard */}
           <rect x={0} y={0} width={artboard.w} height={artboard.h} fill={artboard.bg} stroke="#555" strokeWidth={1 / zoom} />
-          {objects.map((o) => (o.clipId ? (
+          {renderObjects.map((o) => (o.clipId ? (
             <g key={o.id} clipPath={`url(#vf-clip-${o.clipId})`}>
               <ShapeView obj={o} textPathRef={textPathRefs[o.id]} />
             </g>

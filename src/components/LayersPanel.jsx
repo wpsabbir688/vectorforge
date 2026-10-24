@@ -1,13 +1,16 @@
 import { useState } from 'react';
 import { Eye, EyeOff, Lock, LockOpen, ChevronUp, ChevronDown, Square } from 'lucide-react';
 import { useStore } from '../store/useStore.js';
+import { t } from '../lib/i18n.js';
 
 const TYPE_LABEL = {
   rect: 'Rect', ellipse: 'Ellipse', line: 'Line', polygon: 'Polygon', star: 'Star',
   text: 'Text', path: 'Path', brush: 'Brush', group: 'Group', traced: 'Trace', image: 'Image',
+  instance: 'Instance',
 };
 
 export default function LayersPanel() {
+  const language = useStore((s) => s.language);
   const allObjects = useStore((s) => s.objects);
   const activeArtboardId = useStore((s) => s.activeArtboardId);
   const objects = allObjects.filter((o) => !o.artboardId || o.artboardId === activeArtboardId);
@@ -15,6 +18,11 @@ export default function LayersPanel() {
   const select = useStore((s) => s.select);
   const updateObject = useStore((s) => s.updateObject);
   const act = useStore((s) => s.act);
+  const components = useStore((s) => s.components);
+  const placeInstance = useStore((s) => s.placeInstance);
+  const deleteComponent = useStore((s) => s.deleteComponent);
+  const editComponentStart = useStore((s) => s.editComponentStart);
+  const editingComponentId = useStore((s) => s.editingComponentId);
   const [renaming, setRenaming] = useState(null);
   const [nameDraft, setNameDraft] = useState('');
 
@@ -31,9 +39,9 @@ export default function LayersPanel() {
 
   const rows = [...objects].reverse();
   return (
-    <div className="border-b border-[#333] p-2">
-      <h3 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Layers</h3>
-      {rows.length === 0 && <p className="px-1 text-xs text-gray-500">No objects yet. Draw something!</p>}
+    <div data-tour="layers" className="border-b border-[#333] p-2">
+      <h3 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-gray-400">{t(language, 'layers')}</h3>
+      {rows.length === 0 && <p className="px-1 text-xs text-gray-500">{t(language, 'layersEmpty')}</p>}
       <div className="max-h-56 space-y-0.5 overflow-y-auto">
         {rows.map((o) => {
           const selected = selection.includes(o.id);
@@ -44,14 +52,14 @@ export default function LayersPanel() {
               className={`flex items-center gap-1 rounded px-1 py-1 text-xs ${selected ? 'bg-blue-600 text-white' : 'text-gray-200 hover:bg-[#3a3a3a]'}`}
             >
               <button
-                title={o.visible === false ? 'Show' : 'Hide'}
+                title={o.visible === false ? t(language, 'show') : t(language, 'hide')}
                 onClick={(e) => { e.stopPropagation(); updateObject(o.id, { visible: o.visible === false ? true : false }); }}
                 className="shrink-0"
               >
                 {o.visible === false ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
               <button
-                title={o.locked ? 'Unlock' : 'Lock'}
+                title={o.locked ? t(language, 'unlock') : t(language, 'lock')}
                 onClick={(e) => { e.stopPropagation(); updateObject(o.id, { locked: !o.locked }); }}
                 className="shrink-0"
               >
@@ -73,15 +81,31 @@ export default function LayersPanel() {
                   className="min-w-0 flex-1 truncate"
                   onDoubleClick={(e) => { e.stopPropagation(); setRenaming(o.id); setNameDraft(o.name || ''); }}
                 >
-                  {o.name || TYPE_LABEL[o.type] || o.type}{o.isMask ? ' · mask' : ''}{o.clipId ? ' · clipped' : ''}
+                  {o.type === 'instance' ? '◆ ' : ''}{o.name || TYPE_LABEL[o.type] || o.type}{o.isMask ? t(language, 'maskSuffix') : ''}{o.clipId ? t(language, 'clippedSuffix') : ''}
                 </span>
               )}
               <span className="shrink-0 text-[10px] opacity-60">{TYPE_LABEL[o.type] || o.type}</span>
-              <button title="Move up" onClick={(e) => { e.stopPropagation(); move(o.id, 1); }} className="shrink-0"><ChevronUp size={13} /></button>
-              <button title="Move down" onClick={(e) => { e.stopPropagation(); move(o.id, -1); }} className="shrink-0"><ChevronDown size={13} /></button>
+              <button title={t(language, 'moveUp')} onClick={(e) => { e.stopPropagation(); move(o.id, 1); }} className="shrink-0"><ChevronUp size={13} /></button>
+              <button title={t(language, 'moveDown')} onClick={(e) => { e.stopPropagation(); move(o.id, -1); }} className="shrink-0"><ChevronDown size={13} /></button>
             </div>
           );
         })}
+      </div>
+      {/* Components: masters live in the document; Place adds an instance,
+          Edit swaps the canvas to the master (Done/Cancel in the banner). */}
+      <h3 className="mb-1 mt-3 px-1 text-xs font-semibold uppercase tracking-wide text-gray-400">{t(language, 'components')}</h3>
+      {components.length === 0 && (
+        <p className="px-1 text-xs text-gray-500">{t(language, 'componentsEmpty')}</p>
+      )}
+      <div className="space-y-0.5">
+        {components.map((c) => (
+          <div key={c.id} className="flex items-center gap-1 rounded px-1 py-1 text-xs text-gray-200 hover:bg-[#3a3a3a]">
+            <span className="min-w-0 flex-1 truncate">◆ {c.name}</span>
+            <button title={t(language, 'compPlaceTitle')} onClick={() => placeInstance(c.id)} className="shrink-0 rounded bg-[#3a3a3a] px-1.5 py-0.5 hover:bg-blue-600">{t(language, 'compPlace')}</button>
+            <button title={t(language, 'compEditTitle')} disabled={!!editingComponentId} onClick={() => editComponentStart(c.id)} className="shrink-0 rounded bg-[#3a3a3a] px-1.5 py-0.5 hover:bg-blue-600 disabled:opacity-40">{t(language, 'compEdit')}</button>
+            <button title={t(language, 'compDeleteTitle')} onClick={() => { if (confirm(t(language, 'compDeleteConfirm', { name: c.name }))) deleteComponent(c.id); }} className="shrink-0 rounded bg-[#3a3a3a] px-1.5 py-0.5 hover:bg-red-600">✕</button>
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -13,6 +13,8 @@ import ShortcutHelpModal from './components/ShortcutHelpModal.jsx';
 import { TEMPLATES } from './lib/templates.js';
 import { moveObject } from './lib/geometry.js';
 import { importSvgToGroup } from './lib/svgImport.js';
+import { t } from './lib/i18n.js';
+import Tour from './components/Tour.jsx';
 
 const AUTOSAVE_KEY = 'vectorforge-autosave-v1';
 
@@ -33,11 +35,23 @@ function loadAutosave() {
 export default function App() {
   const [traceFile, setTraceFile] = useState(null);
   const [traceOpen, setTraceOpen] = useState(false);
-  const [smallNotice, setSmallNotice] = useState(true);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
   const showTemplates = useStore((s) => s.showTemplates);
   const setShowTemplates = useStore((s) => s.setShowTemplates);
   const loadDocument = useStore((s) => s.loadDocument);
+  const language = useStore((s) => s.language);
+  const editingComponentId = useStore((s) => s.editingComponentId);
+  const editingComponent = useStore((s) => s.components.find((c) => c.id === s.editingComponentId));
+  const editComponentDone = useStore((s) => s.editComponentDone);
+  const editComponentCancel = useStore((s) => s.editComponentCancel);
+
+  // First-run tour: once, unless the user dismissed it before.
+  useEffect(() => {
+    try {
+      if (!localStorage.getItem('vectorforge-tour-seen')) setTourOpen(true);
+    } catch { /* private mode: show it; dismiss still works per session */ setTourOpen(true); }
+  }, []);
 
   // Restore autosave once on boot; default to the logo template for a
   // first-run experience that shows the editor's range immediately.
@@ -52,17 +66,21 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Autosave (debounced) on every objects/artboard change, in v2 format.
-  // Old v1 autosaves still load: loadDocument migrates them on boot.
+  // Autosave (debounced) on every objects/artboard change, in v2 format
+  // plus components. Old v1 autosaves still load: loadDocument migrates
+  // them on boot. While a component master is being edited, store.objects
+  // holds the master — never autosave that over the real document.
   useEffect(() => {
     let timer = null;
     const unsub = useStore.subscribe((s) => {
       clearTimeout(timer);
       timer = setTimeout(() => {
+        if (s.editingComponentId) return;
         try {
           localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
             app: 'vectorforge', version: 2,
-            artboards: s.artboards, activeArtboardId: s.activeArtboardId, objects: s.objects,
+            artboards: s.artboards, activeArtboardId: s.activeArtboardId,
+            objects: s.objects, components: s.components,
           }));
         } catch {
           // Storage full or private mode: autosave is best-effort.
@@ -138,12 +156,12 @@ export default function App() {
       const s = useStore.getState();
       const group = importSvgToGroup(text, s.artboard);
       if (!group) {
-        alert('That SVG has no shapes VectorForge can import.');
+        alert(t(s.language, 'alertSvgEmpty'));
         return;
       }
       s.addObject(group);
     } catch {
-      alert('Could not import that SVG — it may be malformed.');
+      alert(t(s.language, 'alertSvgMalformed'));
     }
   };
 
@@ -166,28 +184,33 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#1e1e1e] text-gray-100">
-      <TopBar onTraceClick={() => openTrace(null)} onImportSvg={importSvg} onShowShortcuts={() => setShowShortcuts(true)} />
-      {smallNotice && (
-        <div className="flex items-center justify-between bg-amber-600 px-3 py-1 text-xs text-white sm:hidden">
-          <span>VectorForge is built for desktop — this small screen will feel cramped.</span>
-          <button onClick={() => setSmallNotice(false)} className="font-bold">Dismiss</button>
+      <TopBar onTraceClick={() => openTrace(null)} onImportSvg={importSvg} onShowShortcuts={() => setShowShortcuts(true)} onReplayTour={() => setTourOpen(true)} />
+      {editingComponentId && (
+        <div className="flex items-center justify-between bg-blue-700 px-3 py-1.5 text-xs text-white">
+          <span>{t(language, 'editBanner', { name: editingComponent?.name || '' })}</span>
+          <span className="flex gap-1">
+            <button onClick={editComponentDone} className="rounded bg-white px-2 py-0.5 font-semibold text-blue-800">{t(language, 'editDone')}</button>
+            <button onClick={editComponentCancel} className="rounded bg-blue-900 px-2 py-0.5 font-semibold">{t(language, 'editCancel')}</button>
+          </span>
         </div>
       )}
-      <div className="flex min-h-0 flex-1">
+      {/* Small screens: toolbar becomes a horizontal scroll strip on top and
+          panels stack below the canvas — a compact but WORKING layout. The
+          old "small screen will feel cramped" dead-end notice is gone. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
         <Toolbar />
         <CanvasArea onImageDrop={(file) => openTrace(file)} />
-        <div className="flex w-72 shrink-0 flex-col overflow-y-auto border-l border-[#333] bg-[#252525]">
+        <div className="flex w-full shrink-0 flex-col border-t border-[#333] bg-[#252525] lg:w-72 lg:overflow-y-auto lg:border-l lg:border-t-0">
           <LayersPanel />
           <PropertiesPanel />
           <AlignPanel />
           <div className="p-2">
-            <h3 className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Shortcuts</h3>
+            <h3 className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-gray-400">{t(language, 'shortcuts')}</h3>
             <p className="px-1 text-[11px] leading-relaxed text-gray-500">
-              V Select · A Direct · P Pen (Enter to finish, click first point to close) · R Rect · E Ellipse · L Line · T Text · B Brush · H Hand ·
-              Space+drag pan · Ctrl+wheel zoom · Shift constrains · Ctrl+D duplicate · Ctrl+Z undo · Del delete · Arrows nudge.
+              {t(language, 'shortcutsText')}
             </p>
             <button onClick={() => setShowShortcuts(true)} className="mt-1 px-1 text-[11px] font-semibold text-blue-400 hover:text-blue-300">
-              Show all shortcuts (?)
+              {t(language, 'showAllShortcuts')}
             </button>
           </div>
         </div>
@@ -196,6 +219,7 @@ export default function App() {
       {showTemplates && <TemplateModal onClose={() => setShowTemplates(false)} />}
       {traceOpen && <TraceModal file={traceFile} onClose={() => setTraceOpen(false)} />}
       {showShortcuts && <ShortcutHelpModal onClose={() => setShowShortcuts(false)} />}
+      {tourOpen && <Tour onClose={() => setTourOpen(false)} />}
     </div>
   );
 }

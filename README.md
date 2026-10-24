@@ -81,7 +81,14 @@ Run it locally (see below) or deploy the `dist/` folder to any static host
 
 ### Panels (right side)
 - **Layers:** list (active artboard only), rename (double-click), visibility
-  eye, lock, reorder, mask/clipped badges.
+  eye, lock, reorder, mask/clipped badges, and a **Components** section
+  (place / edit / delete masters; instances carry a ◆ badge).
+- **Components (new in Phase 3):** select objects → **Create component**
+  in Align & Arrange → place instances from the Layers panel. Editing a
+  master updates every instance; **Detach instance** turns one instance
+  back into independent objects. Per-instance overrides beyond transform
+  (position / scale / rotation / opacity) are not supported. Components
+  survive JSON save/load; v1/v2 files (no components) still open.
 - **Properties:** fill color, gradients (linear with angle, or radial with
   center + radius, 2+ stops), stroke color + width, opacity, blend mode,
   corner radius, polygon sides, star points / inner ratio, font family /
@@ -90,6 +97,37 @@ Run it locally (see below) or deploy the `dist/` folder to any static host
 - **Align:** left / center / right / top / middle / bottom, distribute
   horizontally / vertically (3+ objects), Pathfinder booleans, mask, and
   text-on-path actions.
+
+### Install as an app (PWA, new in Phase 3)
+VectorForge ships a web app manifest (192px + 512px icons) and a service
+worker that precaches the app shell, so it installs like a native app
+(standalone window) and opens offline after the first visit. Updates are
+automatic: a new deploy activates the new worker at once, and an open tab
+picks up the new bundle on reload (or on the next visit if you are
+mid-edit — it never reloads under an active drag).
+
+### Language: English / Bengali (new in Phase 3)
+**EN / BN** toggle in the top bar, saved in the browser, defaulting to
+English. Only UI chrome is translated (toolbar, panels, dialogs, help,
+tour); your own canvas text is never touched.
+
+### Touch + small screens (new in Phase 3)
+Canvas input is unified on Pointer Events: finger/stylus drawing works,
+pinch zooms and two-finger pan work on tablets, and small screens get a
+compact working layout (scrollable toolbar) instead of the old dead-end
+notice. Pinch is verified by code inspection — Playwright's touchscreen
+API has no multi-touch; single-finger touch drawing is E2E-tested.
+
+### Onboarding tour (new in Phase 3)
+First visit shows a short guided tour (toolbar → canvas → layers →
+properties → export) with Skip and "don't show again"; replay anytime
+from the **Tour** button in the top bar. Tour text follows the EN/BN
+toggle.
+
+### Templates (expanded in Phase 3)
+Blank, Logo mark, Social post, Business card — plus **Icon set**
+(12 icons), **Poster** (A4), **YouTube thumbnail** (1280×720), and
+**Infographic** (1080×1350), all built from existing object types.
 
 ### Image Trace (new in v1)
 Turn a PNG/JPG into real editable vector objects:
@@ -206,6 +244,28 @@ import + 5 gradients + 9 booleans + 12 path ops + 8 artboards) and **5/5
 Playwright tests pass**.
 
 ## Changelog
+
+### Phase 3 (2026-10-24) — platform
+- PWA: installable (manifest + 192/512px icons), offline app shell via
+  precaching service worker, auto-update on deploy (vite-plugin-pwa,
+  generateSW; Apple touch icon + mobile-web-app-capable tags included).
+- Bengali + English UI: EN/BN toggle in the top bar, persisted,
+  defaulting to English; every EN key has a BN counterpart (unit-tested).
+- Touch: Pointer Events throughout, pinch-to-zoom + two-finger pan,
+  compact working layout on small screens (old cramped-screen notice
+  removed).
+- Components/symbols: create from selection, place instances, edit
+  master (all instances update), detach; additive document field, so
+  v1/v2 files load unchanged.
+- Templates: icon set, poster, YouTube thumbnail, infographic added
+  (8 total); template-validity unit test also caught and fixed two
+  pre-existing broken ellipses in the Social and Business card templates
+  (they used cx/cy/r, which the engine ignores for ellipses).
+- Onboarding tour: custom, no library — first-run spotlight steps,
+  Skip / don't-show-again, replay from the top bar, EN + BN text.
+- Fixed during Phase 3: a service-worker forced reload could fire
+  mid-drag and lose the canvas session — the reload now only happens
+  before the first interaction; mid-edit sessions are never interrupted.
 
 ### Phase 2 (2026-10-24) — professional editing
 - Pathfinder booleans (Unite / Subtract / Intersect / Exclude) via

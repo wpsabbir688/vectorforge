@@ -5,6 +5,7 @@ import {
   Copy, Trash2,
 } from 'lucide-react';
 import { useStore } from '../store/useStore.js';
+import { t } from '../lib/i18n.js';
 import { booleanSupported } from '../lib/boolean.js';
 
 function Btn({ title, onClick, disabled, children }) {
@@ -21,6 +22,7 @@ function Btn({ title, onClick, disabled, children }) {
 }
 
 export default function AlignPanel() {
+  const language = useStore((s) => s.language);
   const selection = useStore((s) => s.selection);
   const objects = useStore((s) => s.objects);
   const alignSelected = useStore((s) => s.alignSelected);
@@ -35,12 +37,15 @@ export default function AlignPanel() {
   const releaseMask = useStore((s) => s.releaseMask);
   const attachTextToPath = useStore((s) => s.attachTextToPath);
   const detachTextFromPath = useStore((s) => s.detachTextFromPath);
+  const createComponent = useStore((s) => s.createComponent);
+  const detachInstance = useStore((s) => s.detachInstance);
   const disabled = selection.length === 0;
   const multi = selection.length > 1;
   const selected = objects.filter((o) => selection.includes(o.id));
+  const hasInstanceSelection = selected.some((o) => o.type === 'instance');
   const booleanOk = selected.length >= 2 && selected.every(booleanSupported);
   const booleanHint = selected.length >= 2 && !booleanOk
-    ? 'Booleans need closed shapes (rect, ellipse, polygon, star, path). Text, brush strokes, groups, lines and images are not supported.'
+    ? t(language, 'booleanHint')
     : null;
   const textPathPair = selected.length === 2
     && selected.some((o) => o.type === 'text')
@@ -50,50 +55,58 @@ export default function AlignPanel() {
 
   return (
     <div className="p-2">
-      <h3 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Align & Arrange</h3>
+      <h3 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-gray-400">{t(language, 'alignArrange')}</h3>
       <div className="flex flex-wrap gap-0.5 px-1">
-        <Btn title="Align left" onClick={() => alignSelected('left')} disabled={disabled}><AlignStartVertical size={16} /></Btn>
-        <Btn title="Align center" onClick={() => alignSelected('center')} disabled={disabled}><AlignCenterVertical size={16} /></Btn>
-        <Btn title="Align right" onClick={() => alignSelected('right')} disabled={disabled}><AlignEndVertical size={16} /></Btn>
-        <Btn title="Align top" onClick={() => alignSelected('top')} disabled={disabled}><AlignStartHorizontal size={16} /></Btn>
-        <Btn title="Align middle" onClick={() => alignSelected('middle')} disabled={disabled}><AlignCenterHorizontal size={16} /></Btn>
-        <Btn title="Align bottom" onClick={() => alignSelected('bottom')} disabled={disabled}><AlignEndHorizontal size={16} /></Btn>
-        <Btn title="Distribute horizontally (3+)" onClick={() => distributeSelected('x')} disabled={!multi || selection.length < 3}><MoveHorizontal size={16} /></Btn>
-        <Btn title="Distribute vertically (3+)" onClick={() => distributeSelected('y')} disabled={!multi || selection.length < 3}><MoveVertical size={16} /></Btn>
+        <Btn title={t(language, 'alignLeft')} onClick={() => alignSelected('left')} disabled={disabled}><AlignStartVertical size={16} /></Btn>
+        <Btn title={t(language, 'alignCenter')} onClick={() => alignSelected('center')} disabled={disabled}><AlignCenterVertical size={16} /></Btn>
+        <Btn title={t(language, 'alignRight')} onClick={() => alignSelected('right')} disabled={disabled}><AlignEndVertical size={16} /></Btn>
+        <Btn title={t(language, 'alignTop')} onClick={() => alignSelected('top')} disabled={disabled}><AlignStartHorizontal size={16} /></Btn>
+        <Btn title={t(language, 'alignMiddle')} onClick={() => alignSelected('middle')} disabled={disabled}><AlignCenterHorizontal size={16} /></Btn>
+        <Btn title={t(language, 'alignBottom')} onClick={() => alignSelected('bottom')} disabled={disabled}><AlignEndHorizontal size={16} /></Btn>
+        <Btn title={t(language, 'distH')} onClick={() => distributeSelected('x')} disabled={!multi || selection.length < 3}><MoveHorizontal size={16} /></Btn>
+        <Btn title={t(language, 'distV')} onClick={() => distributeSelected('y')} disabled={!multi || selection.length < 3}><MoveVertical size={16} /></Btn>
       </div>
       <div className="mt-1 flex flex-wrap gap-0.5 px-1">
-        <Btn title="Bring forward" onClick={() => reorderSelected('forward')} disabled={disabled}><ArrowUpToLine size={16} /></Btn>
-        <Btn title="Send backward" onClick={() => reorderSelected('backward')} disabled={disabled}><ArrowDownToLine size={16} /></Btn>
-        <Btn title="Bring to front" onClick={() => reorderSelected('front')} disabled={disabled}><ChevronsUp size={16} /></Btn>
-        <Btn title="Send to back" onClick={() => reorderSelected('back')} disabled={disabled}><ChevronsDown size={16} /></Btn>
-        <Btn title="Group (2+)" onClick={groupSelected} disabled={!multi}><Group size={16} /></Btn>
-        <Btn title="Ungroup" onClick={ungroupSelected} disabled={disabled}><Ungroup size={16} /></Btn>
-        <Btn title="Duplicate (Ctrl+D)" onClick={duplicateSelected} disabled={disabled}><Copy size={16} /></Btn>
-        <Btn title="Delete (Del)" onClick={deleteSelected} disabled={disabled}><Trash2 size={16} /></Btn>
+        <Btn title={t(language, 'bringForward')} onClick={() => reorderSelected('forward')} disabled={disabled}><ArrowUpToLine size={16} /></Btn>
+        <Btn title={t(language, 'sendBackward')} onClick={() => reorderSelected('backward')} disabled={disabled}><ArrowDownToLine size={16} /></Btn>
+        <Btn title={t(language, 'bringFront')} onClick={() => reorderSelected('front')} disabled={disabled}><ChevronsUp size={16} /></Btn>
+        <Btn title={t(language, 'sendBack')} onClick={() => reorderSelected('back')} disabled={disabled}><ChevronsDown size={16} /></Btn>
+        <Btn title={t(language, 'group')} onClick={groupSelected} disabled={!multi}><Group size={16} /></Btn>
+        <Btn title={t(language, 'ungroup')} onClick={ungroupSelected} disabled={disabled}><Ungroup size={16} /></Btn>
+        <Btn title={t(language, 'duplicate')} onClick={duplicateSelected} disabled={disabled}><Copy size={16} /></Btn>
+        <Btn title={t(language, 'delete')} onClick={deleteSelected} disabled={disabled}><Trash2 size={16} /></Btn>
       </div>
       <p className="mt-2 px-1 text-[11px] leading-relaxed text-gray-500">
-        Single selection aligns to the artboard; multiple selections align to their shared bounding box.
+        {t(language, 'alignHint')}
       </p>
-      <h3 className="mb-2 mt-4 px-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Pathfinder</h3>
+      <h3 className="mb-2 mt-4 px-1 text-xs font-semibold uppercase tracking-wide text-gray-400">{t(language, 'pathfinder')}</h3>
       <div className="flex flex-wrap gap-1 px-1">
-        <button title="Unite — merge selected shapes into one" onClick={() => booleanSelected('unite')} disabled={!booleanOk} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200 disabled:opacity-40">Unite</button>
-        <button title="Subtract — cut later shapes from the first" onClick={() => booleanSelected('subtract')} disabled={!booleanOk} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200 disabled:opacity-40">Subtract</button>
-        <button title="Intersect — keep only the overlap" onClick={() => booleanSelected('intersect')} disabled={!booleanOk} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200 disabled:opacity-40">Intersect</button>
-        <button title="Exclude — keep the non-overlapping parts" onClick={() => booleanSelected('exclude')} disabled={!booleanOk} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200 disabled:opacity-40">Exclude</button>
+        <button title={t(language, 'uniteTitle')} onClick={() => booleanSelected('unite')} disabled={!booleanOk} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200 disabled:opacity-40">{t(language, 'unite')}</button>
+        <button title={t(language, 'subtractTitle')} onClick={() => booleanSelected('subtract')} disabled={!booleanOk} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200 disabled:opacity-40">{t(language, 'subtract')}</button>
+        <button title={t(language, 'intersectTitle')} onClick={() => booleanSelected('intersect')} disabled={!booleanOk} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200 disabled:opacity-40">{t(language, 'intersect')}</button>
+        <button title={t(language, 'excludeTitle')} onClick={() => booleanSelected('exclude')} disabled={!booleanOk} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200 disabled:opacity-40">{t(language, 'exclude')}</button>
       </div>
       {booleanHint && <p className="mt-1 px-1 text-[11px] leading-relaxed text-amber-400">{booleanHint}</p>}
       <p className="mt-1 px-1 text-[11px] leading-relaxed text-gray-500">
-        Result is a single path (fill/stroke of the first shape). Rotation is baked in; rect corner radius is ignored.
+        {t(language, 'booleanNote')}
       </p>
-      <h3 className="mb-2 mt-4 px-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Mask & Text on Path</h3>
+      <h3 className="mb-2 mt-4 px-1 text-xs font-semibold uppercase tracking-wide text-gray-400">{t(language, 'maskTextPath')}</h3>
       <div className="flex flex-wrap gap-1 px-1">
-        <button title="Topmost selected shape becomes the mask for the rest" onClick={createMask} disabled={!multi} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200 disabled:opacity-40">Use as mask</button>
-        <button title="Release selected mask(s)" onClick={releaseMask} disabled={!hasMaskSelection} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200 disabled:opacity-40">Release mask</button>
-        <button title="Attach the selected text to the selected path" onClick={attachTextToPath} disabled={!textPathPair} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200 disabled:opacity-40">Text on path</button>
-        <button title="Detach the selected text from its path" onClick={detachTextFromPath} disabled={!attachedText} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200 disabled:opacity-40">Detach text</button>
+        <button title={t(language, 'useMaskTitle')} onClick={createMask} disabled={!multi} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200 disabled:opacity-40">{t(language, 'useMask')}</button>
+        <button title={t(language, 'releaseMaskTitle')} onClick={releaseMask} disabled={!hasMaskSelection} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200 disabled:opacity-40">{t(language, 'releaseMask')}</button>
+        <button title={t(language, 'textOnPathTitle')} onClick={attachTextToPath} disabled={!textPathPair} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200 disabled:opacity-40">{t(language, 'textOnPath')}</button>
+        <button title={t(language, 'detachTextTitle')} onClick={detachTextFromPath} disabled={!attachedText} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200 disabled:opacity-40">{t(language, 'detachText')}</button>
       </div>
       <p className="mt-1 px-1 text-[11px] leading-relaxed text-gray-500">
-        Mask: topmost shape clips the others (mask itself is not drawn). Text on path: select one text + one path. Both survive save and SVG export.
+        {t(language, 'maskHint')}
+      </p>
+      <h3 className="mb-2 mt-4 px-1 text-xs font-semibold uppercase tracking-wide text-gray-400">{t(language, 'compSection')}</h3>
+      <div className="flex flex-wrap gap-1 px-1">
+        <button title={t(language, 'createComponentTitle')} onClick={() => createComponent()} disabled={disabled} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200 disabled:opacity-40">{t(language, 'createComponent')}</button>
+        <button title={t(language, 'detachInstanceTitle')} onClick={detachInstance} disabled={!hasInstanceSelection} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200 disabled:opacity-40">{t(language, 'detachInstance')}</button>
+      </div>
+      <p className="mt-1 px-1 text-[11px] leading-relaxed text-gray-500">
+        {t(language, 'compHint')}
       </p>
     </div>
   );

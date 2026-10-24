@@ -6,6 +6,8 @@ import { booleanOp, booleanSupported, booleanResultObject } from '../lib/boolean
 import {
   flattenPathPoints, simplifyPolyline, chaikinSmooth, pointsToBezierPoints, strokeOutlineContours,
 } from '../lib/pathops.js';
+import { createComponentFromSelection, resolveInstance } from '../lib/components.js';
+import { getInitialLanguage } from '../lib/i18n.js';
 
 const HISTORY_CAP = 100;
 export const clone = (v) => JSON.parse(JSON.stringify(v));
@@ -79,6 +81,20 @@ export const useStore = create((set, get) => ({
   // never persist across reloads and never change the JSON format.
   guides: [],
   selectedGuideId: null,
+  // Components / symbols (Phase 3): masters live in the document; instances
+  // reference them by componentId. While editing a master, store.objects
+  // temporarily holds the master's objects and editingBackup holds the
+  // document objects (restored on Done/Cancel); autosave skips that window.
+  components: [],
+  editingComponentId: null,
+  editingBackup: null,
+  // UI language (Phase 3): persisted, defaults to English so existing
+  // users and tests see no change.
+  language: getInitialLanguage(),
+  setLanguage: (language) => {
+    try { localStorage.setItem('vectorforge-language', language); } catch { /* private mode */ }
+    set({ language });
+  },
   addGuide: (guide) => set((s) => ({ guides: [...s.guides, guide] })),
   moveGuide: (id, pos) => set((s) => ({ guides: s.guides.map((g) => (g.id === id ? { ...g, pos } : g)) })),
   removeGuide: (id) => set((s) => ({
@@ -105,6 +121,9 @@ export const useStore = create((set, get) => ({
     return s.objects.filter((o) => onActiveArtboard(o, s.activeArtboardId));
   },
   setActiveArtboard: (id) => set((s) => {
+    // Artboard switching is blocked while editing a component master:
+    // store.objects currently holds the master, not the document.
+    if (s.editingComponentId) return {};
     if (!s.artboards.some((a) => a.id === id)) return {};
     return {
       activeArtboardId: id,
@@ -348,22 +367,145 @@ export const useStore = create((set, get) => ({
     set({
       artboards: doc.artboards, activeArtboardId: doc.activeArtboardId,
       artboard: doc.artboards[0], objects: doc.objects,
+      components: [],
       selection: [], past: [], future: [], penDraft: null, editingTextId: null,
       guides: [], selectedGuideId: null,
+      editingComponentId: null, editingBackup: null,
     });
   },
 
   // Accepts v1 ({artboard, objects}) and v2 ({artboards, ...}) documents;
   // v1 files open as a one-artboard document (backward compatible).
+  // Components are additive: files without them simply have none.
   loadDocument: (doc) => {
     const migrated = migrateDocument(doc);
     set({
       artboards: migrated.artboards, activeArtboardId: migrated.activeArtboardId,
       artboard: migrated.artboards.find((a) => a.id === migrated.activeArtboardId),
       objects: migrated.objects,
+      components: migrated.components || [],
       selection: [], past: [], future: [], penDraft: null, editingTextId: null,
       guides: [], selectedGuideId: null,
+      editingComponentId: null, editingBackup: null,
     });
+  },
+
+  // ---- Phase 3: components / symbols ------------------------------------
+  createComponent: (name) => {
+    const s = get();
+    const sel = s.getSelectedObjects();
+    if (sel.length === 0) return false;
+    const made = createComponentFromSelection(sel, name);
+    if (!made) return false;
+    const ids = new Set(sel.map((o) => o.id));
+    const instance = { ...made.instance, artboardId: s.activeArtboardId };
+    s.act((list) => [...list.filter((o) => !ids.has(o.id)), instance]);
+    set((st) => ({ components: [...st.components, made.master], selection: [instance.id] }));
+    return true;
+  },
+
+  placeInstance: (componentId) => {
+    const s = get();
+    const master = s.components.find((c) => c.id === componentId);
+    if (!master) return false;
+    const art = s.getActiveArtboard();
+    const instance = {
+      id: uid(), type: 'instance', name: master.name, componentId: master.id,
+      x: Math.round(art.w / 2 - master.w / 2), y: Math.round(art.h / 2 - master.h / 2),
+      scale: 1, rotation: 0, masterW: master.w, masterH: master.h,
+      visible: true, locked: false, opacity: 1, artboardId: s.activeArtboardId,
+    };
+    s.addObject(instance);
+    return true;
+  },
+
+  deleteComponent: (componentId) => {
+    const s = get();
+    s.act((list) => list.filter((o) => !(o.type === 'instance' && o.componentId === componentId)));
+    set((st) => ({ components: st.components.filter((c) => c.id !== componentId), selection: [] }));
+  },
+
+  renameComponent: (componentId, name) => set((s) => ({
+    components: s.components.map((c) => (c.id === componentId ? { ...c, name } : c)),
+  })),
+
+  detachInstance: () => {
+    const s = get();
+    const sel = s.getSelectedObjects().filter((o) => o.type === 'instance');
+    if (sel.length === 0) return false;
+    const ids = new Set(sel.map((o) => o.id));
+    s.act((list) => {
+      const out = [];
+      for (const o of list) {
+        if (!ids.has(o.id)) { out.push(o); continue; }
+        const copies = resolveInstance(o, s.components);
+        if (o.clipId) {
+          // Keep copies top-level so each keeps its clip wrapping.
+          out.push(...copies);
+        } else {
+          out.push({
+            id: uid(), type: 'group', name: `${o.name || 'Component'} (detached)`,
+            children: copies, visible: true, locked: false, opacity: 1, rotation: 0,
+            artboardId: o.artboardId,
+          });
+        }
+      }
+      return out;
+    });
+    set({ selection: [] });
+    return true;
+  },
+
+  // Master editing: swap store.objects to the master's objects (cloned, on
+  // the active artboard). Done re-bases and writes them back; Cancel drops
+  // them. Undo history is reset across the boundary by design.
+  editComponentStart: (componentId) => {
+    const s = get();
+    const master = s.components.find((c) => c.id === componentId);
+    if (!master || s.editingComponentId) return false;
+    const editing = clone(master.objects || []).map((o) => ({ ...o, artboardId: s.activeArtboardId }));
+    set({
+      editingComponentId: componentId,
+      editingBackup: clone(s.objects),
+      objects: editing,
+      selection: [], past: [], future: [], penDraft: null, editingTextId: null,
+    });
+    return true;
+  },
+
+  editComponentDone: () => {
+    const s = get();
+    if (!s.editingComponentId || !s.editingBackup) return false;
+    const edited = s.objects;
+    const box = bboxUnion(edited.map((o) => bboxOf(o)));
+    const rebased = box
+      ? edited.map((o) => moveObject(clone(o), -box.x, -box.y))
+      : edited;
+    const w = box ? box.w : 0;
+    const h = box ? box.h : 0;
+    set((st) => ({
+      components: st.components.map((c) => (c.id === s.editingComponentId
+        ? { ...c, objects: rebased, w, h } : c)),
+      // Instances track the master's current box so their boxes stay right.
+      objects: s.editingBackup.map((o) => (o.type === 'instance' && o.componentId === s.editingComponentId
+        ? { ...o, masterW: w, masterH: h } : o)),
+      editingComponentId: null,
+      editingBackup: null,
+      selection: [], past: [], future: [],
+    }));
+    return true;
+  },
+
+  editComponentCancel: () => {
+    const s = get();
+    if (!s.editingComponentId || !s.editingBackup) return false;
+    set({
+      objects: s.editingBackup,
+      editingComponentId: null,
+      editingBackup: null,
+      selection: [], past: [], future: [],
+    });
+    return true;
   },
 
   // ---- Phase 2 actions (all undoable via act()) -------------------------

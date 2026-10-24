@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '../store/useStore.js';
+import { t } from '../lib/i18n.js';
 import { strokeOutlineContours } from '../lib/pathops.js';
 
 const SWATCHES = [
@@ -33,6 +34,7 @@ function NumInput({ value, onChange, min, max, step = 1 }) {
 }
 
 export default function PropertiesPanel() {
+  const language = useStore((s) => s.language);
   const selection = useStore((s) => s.selection);
   const objects = useStore((s) => s.objects);
   const style = useStore((s) => s.style);
@@ -66,13 +68,13 @@ export default function PropertiesPanel() {
   };
 
   return (
-    <div className="border-b border-[#333] p-2">
-      <h3 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Properties</h3>
-      {selected.length === 0 && <p className="px-1 text-xs text-gray-500">Select an object to edit its properties.</p>}
-      {selected.length > 1 && <p className="px-1 text-xs text-gray-400">{selected.length} objects selected — fill, stroke and opacity apply to all.</p>}
+    <div data-tour="properties" className="border-b border-[#333] p-2">
+      <h3 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-gray-400">{t(language, 'properties')}</h3>
+      {selected.length === 0 && <p className="px-1 text-xs text-gray-500">{t(language, 'propSelectHint')}</p>}
+      {selected.length > 1 && <p className="px-1 text-xs text-gray-400">{t(language, 'propMultiHint', { n: selected.length })}</p>}
 
       <div className="mt-1">
-        <p className="px-1 text-xs text-gray-400">Fill</p>
+        <p className="px-1 text-xs text-gray-400">{t(language, 'propFill')}</p>
         <div className="mt-1 flex items-center gap-2 px-1">
           <input type="color" value={single?.fillType === 'gradient' ? '#4f7cff' : (single?.fill || style.fill)} onChange={(e) => applyFill(e.target.value)} className="h-8 w-10 cursor-pointer rounded border border-[#444] bg-transparent" />
           <input
@@ -91,7 +93,7 @@ export default function PropertiesPanel() {
                 else updateObject(single.id, { fillType: 'solid' });
               }}
             />
-            Gradient
+            {t(language, 'propGradient')}
           </label>
         </div>
         <div className="mt-1 flex flex-wrap gap-1 px-1">
@@ -101,7 +103,7 @@ export default function PropertiesPanel() {
         </div>
         {recentColors.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-1 px-1">
-            <span className="w-full text-[10px] text-gray-500">Recent</span>
+            <span className="w-full text-[10px] text-gray-500">{t(language, 'propRecent')}</span>
             {recentColors.map((c) => (
               <button key={c} title={c} onClick={() => applyFill(c)} className="h-5 w-5 rounded border border-white/20" style={{ backgroundColor: c }} />
             ))}
@@ -109,33 +111,33 @@ export default function PropertiesPanel() {
         )}
         {gradient && (
           <div className="mt-2 rounded border border-[#444] p-2">
-            <Row label="Type">
+            <Row label={t(language, 'propType')}>
               <select
                 value={gradient.type === 'radial' ? 'radial' : 'linear'}
                 onChange={(e) => setGradient({ type: e.target.value })}
                 className="rounded border border-[#444] bg-[#2a2a2a] px-1 py-1 text-xs text-white outline-none"
               >
-                <option value="linear">Linear</option>
-                <option value="radial">Radial</option>
+                <option value="linear">{t(language, 'propLinear')}</option>
+                <option value="radial">{t(language, 'propRadial')}</option>
               </select>
             </Row>
             {gradient.type === 'radial' ? (
               <>
-                <Row label="Center X">
+                <Row label={t(language, 'propCenterX')}>
                   <input type="range" min={0} max={100} value={Math.round((gradient.cx ?? 0.5) * 100)} onChange={(e) => setGradient({ cx: Number(e.target.value) / 100 })} className="w-24" />
                   <span className="w-8 text-right text-gray-300">{Math.round((gradient.cx ?? 0.5) * 100)}%</span>
                 </Row>
-                <Row label="Center Y">
+                <Row label={t(language, 'propCenterY')}>
                   <input type="range" min={0} max={100} value={Math.round((gradient.cy ?? 0.5) * 100)} onChange={(e) => setGradient({ cy: Number(e.target.value) / 100 })} className="w-24" />
                   <span className="w-8 text-right text-gray-300">{Math.round((gradient.cy ?? 0.5) * 100)}%</span>
                 </Row>
-                <Row label="Radius">
+                <Row label={t(language, 'propRadius')}>
                   <input type="range" min={5} max={150} value={Math.round((gradient.r ?? 0.5) * 100)} onChange={(e) => setGradient({ r: Number(e.target.value) / 100 })} className="w-24" />
                   <span className="w-8 text-right text-gray-300">{Math.round((gradient.r ?? 0.5) * 100)}%</span>
                 </Row>
               </>
             ) : (
-              <Row label="Angle">
+              <Row label={t(language, 'propAngle')}>
                 <input type="range" min={0} max={360} value={gradient.angle ?? 90} onChange={(e) => setGradient({ angle: Number(e.target.value) })} className="w-24" />
                 <span className="w-8 text-right text-gray-300">{gradient.angle ?? 90}°</span>
               </Row>
@@ -154,21 +156,21 @@ export default function PropertiesPanel() {
               onClick={() => setGradient({ stops: [...gradient.stops, { offset: 50, color: '#ffffff' }].sort((a, b) => a.offset - b.offset) })}
               className="mt-1 rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200"
             >
-              + Add stop
+              {t(language, 'propAddStop')}
             </button>
           </div>
         )}
       </div>
 
-      <Row label="Stroke">
+      <Row label={t(language, 'propStroke')}>
         <input type="color" value={single?.stroke && single.stroke !== 'none' ? single.stroke : style.stroke} onChange={(e) => applyStroke(e.target.value)} className="h-7 w-9 cursor-pointer rounded border border-[#444] bg-transparent" />
         <NumInput value={single?.strokeWidth ?? style.strokeWidth} onChange={(v) => { setStyle({ strokeWidth: v }); if (selected.length > 0) updateSelected({ strokeWidth: v }); }} min={0} max={100} />
       </Row>
-      <Row label="Opacity">
+      <Row label={t(language, 'propOpacity')}>
         <input type="range" min={0} max={1} step={0.05} value={single?.opacity ?? style.opacity} onChange={(e) => { const v = Number(e.target.value); setStyle({ opacity: v }); if (selected.length > 0) updateSelected({ opacity: v }); }} className="w-24" />
         <span className="w-8 text-right text-gray-300">{Math.round((single?.opacity ?? style.opacity) * 100)}%</span>
       </Row>
-      <Row label="Blend">
+      <Row label={t(language, 'propBlend')}>
         <select
           value={single?.blendMode || 'normal'}
           onChange={(e) => { if (selected.length > 0) updateSelected({ blendMode: e.target.value }); }}
@@ -180,65 +182,65 @@ export default function PropertiesPanel() {
 
       {single && (single.type === 'path' || single.type === 'brush') && (
         <div className="mt-2 rounded border border-[#444] p-2">
-          <p className="mb-1 text-xs font-semibold text-gray-300">Path</p>
-          <Row label="Simplify tolerance">
+          <p className="mb-1 text-xs font-semibold text-gray-300">{t(language, 'propPath')}</p>
+          <Row label={t(language, 'propSimplifyTolerance')}>
             <input type="range" min={0.5} max={20} step={0.5} value={tolerance} onChange={(e) => setTolerance(Number(e.target.value))} className="w-24" />
             <span className="w-10 text-right text-gray-300">{tolerance}px</span>
           </Row>
           <div className="mt-1 flex gap-1">
-            <button onClick={() => simplifySelected(tolerance)} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200">Simplify</button>
-            <button onClick={smoothSelected} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200">Smooth</button>
+            <button onClick={() => simplifySelected(tolerance)} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200">{t(language, 'propSimplify')}</button>
+            <button onClick={smoothSelected} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200">{t(language, 'propSmooth')}</button>
           </div>
           <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
-            Simplify drops anchor points (undoable). Smooth rounds the shape. Bezier curves are flattened before simplifying.
+            {t(language, 'propSimplifyHint')}
           </p>
         </div>
       )}
       {single && strokeOutlineContours(single) && (
         <div className="mt-2">
           <button onClick={outlineStrokeSelected} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200">
-            Outline stroke
+            {t(language, 'propOutlineStroke')}
           </button>
           <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
-            Turns the stroke into a filled shape (stroke color becomes the fill). Undoable.
+            {t(language, 'propOutlineHint')}
           </p>
         </div>
       )}
       {single?.type === 'rect' && (
-        <Row label="Corner radius">
+        <Row label={t(language, 'propCornerRadius')}>
           <NumInput value={single.cornerRadius || 0} onChange={(v) => updateObject(single.id, { cornerRadius: v })} min={0} max={500} />
         </Row>
       )}
       {single?.type === 'polygon' && (
-        <Row label="Sides">
+        <Row label={t(language, 'propSides')}>
           <NumInput value={single.sides || 6} onChange={(v) => updateObject(single.id, { sides: Math.max(3, Math.min(32, v)) })} min={3} max={32} />
         </Row>
       )}
       {single?.type === 'star' && (
         <>
-          <Row label="Points">
+          <Row label={t(language, 'propPoints')}>
             <NumInput value={single.sides || 5} onChange={(v) => updateObject(single.id, { sides: Math.max(3, Math.min(32, v)) })} min={3} max={32} />
           </Row>
-          <Row label="Inner ratio">
+          <Row label={t(language, 'propInnerRatio')}>
             <NumInput value={single.innerRatio ?? 0.5} onChange={(v) => updateObject(single.id, { innerRatio: Math.max(0.1, Math.min(0.95, v)) })} min={0.1} max={0.95} step={0.05} />
           </Row>
         </>
       )}
       {single?.type === 'text' && (
         <>
-          <Row label="Font">
+          <Row label={t(language, 'propFont')}>
             <select value={single.fontFamily} onChange={(e) => updateObject(single.id, { fontFamily: e.target.value })} className="rounded border border-[#444] bg-[#2a2a2a] px-1 py-1 text-xs text-white outline-none">
               {FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
             </select>
           </Row>
-          <Row label="Size">
+          <Row label={t(language, 'propSize')}>
             <NumInput value={single.fontSize} onChange={(v) => updateObject(single.id, { fontSize: Math.max(6, v) })} min={6} max={400} />
           </Row>
-          <Row label="Weight">
+          <Row label={t(language, 'propWeight')}>
             <select value={single.fontWeight} onChange={(e) => updateObject(single.id, { fontWeight: Number(e.target.value) })} className="rounded border border-[#444] bg-[#2a2a2a] px-1 py-1 text-xs text-white outline-none">
-              <option value={400}>Regular</option>
-              <option value={700}>Bold</option>
-              <option value={800}>Extra bold</option>
+              <option value={400}>{t(language, 'propRegular')}</option>
+              <option value={700}>{t(language, 'propBold')}</option>
+              <option value={800}>{t(language, 'propExtraBold')}</option>
             </select>
           </Row>
           <textarea
@@ -251,19 +253,19 @@ export default function PropertiesPanel() {
       )}
       {single && ['rect', 'ellipse', 'text', 'traced', 'image'].includes(single.type) && (
         <>
-          <Row label="X">
+          <Row label={t(language, 'propX')}>
             <NumInput value={Math.round(single.x)} onChange={(v) => updateObject(single.id, { x: v })} />
           </Row>
-          <Row label="Y">
+          <Row label={t(language, 'propY')}>
             <NumInput value={Math.round(single.y)} onChange={(v) => updateObject(single.id, { y: v })} />
           </Row>
-          <Row label="Width">
+          <Row label={t(language, 'propWidth')}>
             <NumInput value={Math.round(single.w)} onChange={(v) => updateObject(single.id, { w: Math.max(1, v) })} min={1} />
           </Row>
-          <Row label="Height">
+          <Row label={t(language, 'propHeight')}>
             <NumInput value={Math.round(single.h)} onChange={(v) => updateObject(single.id, { h: Math.max(1, v) })} min={1} />
           </Row>
-          <Row label="Rotation">
+          <Row label={t(language, 'propRotation')}>
             <NumInput value={Math.round(single.rotation || 0)} onChange={(v) => updateObject(single.id, { rotation: v })} min={-360} max={360} />
           </Row>
         </>

@@ -3,6 +3,8 @@ import { test, expect } from '@playwright/test';
 // Phase 2 coverage: multi-artboard switching and a boolean operation,
 // driven through the real UI (mouse + buttons), not store internals.
 test.beforeEach(async ({ page }) => {
+  // The first-run tour overlay would intercept clicks; seed it as seen.
+  await page.addInitScript(() => localStorage.setItem('vectorforge-tour-seen', '1'));
   await page.goto('/');
   await expect(page.getByText('Badge star')).toBeVisible({ timeout: 15000 });
 });
