@@ -147,7 +147,7 @@ export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts, onR
       <BarButton title={t(language, 'titlePasteSvg')} onClick={doPasteSvg}>{t(language, 'pasteSvg')}</BarButton>
       <BarButton title={t(language, 'titleTemplates')} onClick={() => setShowTemplates(true)}><LayoutTemplate size={16} /> {t(language, 'templates')}</BarButton>
       <BarButton title={t(language, 'titleHelp')} onClick={onShowShortcuts}>{t(language, 'help')}</BarButton>
-      {onReplayTour && <BarButton title={t(language, 'tourReplay')} onClick={onReplayTour}>Tour</BarButton>}
+      {onReplayTour && <BarButton title={t(language, 'tourReplay')} onClick={onReplayTour}>{t(language, 'tour')}</BarButton>}
       <span className="ml-1 flex items-center gap-0.5" title={t(language, 'titleLanguage')}>
         <button
           onClick={() => setLanguage('en')}

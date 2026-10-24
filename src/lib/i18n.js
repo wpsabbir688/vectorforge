@@ -174,7 +174,7 @@ const EN = {
   editDone: 'Done', editCancel: 'Cancel',
   // Tour
   tourNext: 'Next', tourBack: 'Back', tourSkip: 'Skip tour', tourDone: 'Done',
-  tourReplay: 'Replay tour',
+  tour: 'Tour', tourReplay: 'Replay tour',
   tourS1Title: 'Welcome to VectorForge', tourS1Body: 'A free vector studio in your browser. This quick tour shows the essentials — under a minute.',
   tourS2Title: 'Tools', tourS2Body: 'Pick a tool here: Select, Pen, shapes, Text, Brush and more. Shortcuts are shown in Help (?).',
   tourS3Title: 'Canvas', tourS3Body: 'Draw on the artboard. Pan with Space + drag, zoom with Ctrl + wheel, pinch on touch screens.',
@@ -329,7 +329,7 @@ const BN = {
   editBanner: 'কম্পোনেন্ট "{name}" সম্পাদনা চলছে — পরিবর্তন সব ইনস্ট্যান্সে আপডেট হবে।',
   editDone: 'সম্পন্ন', editCancel: 'বাতিল',
   tourNext: 'পরবর্তী', tourBack: 'পেছনে', tourSkip: 'ট্যুর বাদ দিন', tourDone: 'সম্পন্ন',
-  tourReplay: 'ট্যুর আবার দেখুন',
+  tour: 'ট্যুর', tourReplay: 'ট্যুর আবার দেখুন',
   tourS1Title: 'VectorForge-এ স্বাগতম', tourS1Body: 'ব্রাউজারেই একটি বিনামূল্যের ভেক্টর স্টুডিও। এই ছোট ট্যুরে মূল বিষয়গুলো দেখে নিন — এক মিনিটেরও কম লাগবে।',
   tourS2Title: 'টুল', tourS2Body: 'এখান থেকে টুল বেছে নিন: নির্বাচন, পেন, আকৃতি, লেখা, ব্রাশ আরও অনেক কিছু। শর্টকাট দেখতে Help (?) চাপুন।',
   tourS3Title: 'ক্যানভাস', tourS3Body: 'আর্টবোর্ডে আঁকুন। Space + drag দিয়ে প্যান, Ctrl + wheel দিয়ে জুম, টাচ স্ক্রিনে পিঞ্চ করুন।',
