@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store/useStore.js';
 import {
   uid, bboxOf, rotatedBboxOf, bboxUnion, buildPathD, smoothStrokeD,
