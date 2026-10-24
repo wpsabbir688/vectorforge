@@ -4,6 +4,9 @@ import { t } from '../lib/i18n.js';
 import { expandInstances } from '../lib/components.js';
 import { moveObject } from '../lib/geometry.js';
 import { exportSvg, exportPng, downloadFile } from '../lib/export.js';
+import { exportEps } from '../lib/eps.js';
+import { exportPdf } from '../lib/pdf.js';
+import { optimizeSvg } from '../lib/svgOptimize.js';
 
 const SIZES = [16, 32, 48, 64, 128, 180, 192, 256, 512, 1024, 1080];
 const PRESETS = {
@@ -21,6 +24,7 @@ export default function AssetExportPanel({ onClose }) {
   const getSelectionBox = useStore((s) => s.getSelectionBox);
   const [sizes, setSizes] = useState([512]);
   const [scope, setScope] = useState('artboard');
+  const [optimize, setOptimize] = useState(false);
   const [baseName, setBaseName] = useState('vectorforge');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -56,8 +60,25 @@ export default function AssetExportPanel({ onClose }) {
   const doSvg = () => {
     const region = getRegion();
     if (!region) { setMessage(t(language, 'assetSelectFirst')); return; }
-    downloadFile(`${baseName || 'vectorforge'}.svg`, exportSvg(region.artboard, region.objects), 'image/svg+xml');
+    const svg = exportSvg(region.artboard, region.objects);
+    // The optimizer is opt-in here only; the top-bar Export SVG keeps
+    // the exact serializer output as its default.
+    downloadFile(`${baseName || 'vectorforge'}.svg`, optimize ? optimizeSvg(svg) : svg, 'image/svg+xml');
     setMessage(t(language, 'assetSvgDownloaded'));
+  };
+
+  const doEps = () => {
+    const region = getRegion();
+    if (!region) { setMessage(t(language, 'assetSelectFirst')); return; }
+    downloadFile(`${baseName || 'vectorforge'}.eps`, exportEps(region.artboard, region.objects), 'application/postscript');
+    setMessage(t(language, 'assetEpsDownloaded'));
+  };
+
+  const doPdf = () => {
+    const region = getRegion();
+    if (!region) { setMessage(t(language, 'assetSelectFirst')); return; }
+    downloadFile(`${baseName || 'vectorforge'}.pdf`, exportPdf(region.artboard, region.objects), 'application/pdf');
+    setMessage(t(language, 'assetPdfDownloaded'));
   };
 
   const doPngs = async () => {
@@ -129,8 +150,14 @@ export default function AssetExportPanel({ onClose }) {
             </button>
           ))}
         </div>
-        <div className="flex gap-2">
+        <label className="mb-3 flex items-center gap-1 text-xs text-gray-300">
+          <input type="checkbox" checked={optimize} onChange={(e) => setOptimize(e.target.checked)} />
+          {t(language, 'assetOptimizeSvg')}
+        </label>
+        <div className="flex flex-wrap gap-2">
           <button onClick={doSvg} className="rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white">{t(language, 'assetExportSvg')}</button>
+          <button onClick={doEps} className="rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white">{t(language, 'assetExportEps')}</button>
+          <button onClick={doPdf} className="rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white">{t(language, 'assetExportPdf')}</button>
           <button onClick={doPngs} disabled={busy} className="rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">
             {busy ? t(language, 'traceExporting') : t(language, 'assetExportPngs', { n: sizes.length })}
           </button>

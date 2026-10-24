@@ -7,6 +7,8 @@ import {
 import { useStore } from '../store/useStore.js';
 import { ARTBOARD_PRESETS } from '../lib/templates.js';
 import { exportSvg, exportPng, copySvgToClipboard, downloadFile } from '../lib/export.js';
+import { exportEps, decodeEpsBytes } from '../lib/eps.js';
+import { exportPdf } from '../lib/pdf.js';
 import { parseDocument } from '../lib/geometry.js';
 import { expandInstances } from '../lib/components.js';
 import { t } from '../lib/i18n.js';
@@ -25,7 +27,7 @@ function BarButton({ title, onClick, disabled, children, active }) {
   );
 }
 
-export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts, onReplayTour }) {
+export default function TopBar({ onTraceClick, onImportSvg, onImportEps, onShowShortcuts, onReplayTour }) {
   const language = useStore((s) => s.language);
   const setLanguage = useStore((s) => s.setLanguage);
   const zoom = useStore((s) => s.zoom);
@@ -56,6 +58,7 @@ export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts, onR
   const setShowTemplates = useStore((s) => s.setShowTemplates);
   const fileRef = useRef(null);
   const svgFileRef = useRef(null);
+  const epsFileRef = useRef(null);
 
   const doImportSvgFile = (file) => {
     const reader = new FileReader();
@@ -63,6 +66,16 @@ export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts, onR
       if (onImportSvg) onImportSvg(String(reader.result || ''));
     };
     reader.readAsText(file);
+  };
+
+  // EPS files may carry a binary preview header; read raw bytes and
+  // decode as Latin-1 so the parser can strip the header itself.
+  const doImportEpsFile = (file) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (onImportEps && reader.result) onImportEps(decodeEpsBytes(reader.result));
+    };
+    reader.readAsArrayBuffer(file);
   };
 
   const doPasteSvg = async () => {
@@ -102,10 +115,20 @@ export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts, onR
   };
 
   // Single-artboard quick exports always use the ACTIVE artboard.
-  // Instances are expanded first: the serializer only knows plain shapes.
+  // Instances are expanded first: the serializers only know plain shapes.
   const doExportSvg = () => {
     const s = useStore.getState();
     downloadFile('vectorforge.svg', exportSvg(s.getActiveArtboard(), expandInstances(s.getActiveObjects(), s.components)), 'image/svg+xml');
+  };
+
+  const doExportEps = () => {
+    const s = useStore.getState();
+    downloadFile('vectorforge.eps', exportEps(s.getActiveArtboard(), expandInstances(s.getActiveObjects(), s.components)), 'application/postscript');
+  };
+
+  const doExportPdf = () => {
+    const s = useStore.getState();
+    downloadFile('vectorforge.pdf', exportPdf(s.getActiveArtboard(), expandInstances(s.getActiveObjects(), s.components)), 'application/pdf');
   };
 
   const doExportPng = async (scale) => {
@@ -144,6 +167,10 @@ export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts, onR
         <FolderOpen size={16} /> {t(language, 'importSvg')}
       </BarButton>
       <input ref={svgFileRef} type="file" accept=".svg,image/svg+xml" className="hidden" onChange={(e) => { if (e.target.files[0]) doImportSvgFile(e.target.files[0]); e.target.value = ''; }} />
+      <BarButton title={t(language, 'titleImportEps')} onClick={() => epsFileRef.current?.click()}>
+        <FolderOpen size={16} /> {t(language, 'importEps')}
+      </BarButton>
+      <input ref={epsFileRef} type="file" accept=".eps,application/postscript" className="hidden" onChange={(e) => { if (e.target.files[0]) doImportEpsFile(e.target.files[0]); e.target.value = ''; }} />
       <BarButton title={t(language, 'titlePasteSvg')} onClick={doPasteSvg}>{t(language, 'pasteSvg')}</BarButton>
       <BarButton title={t(language, 'titleTemplates')} onClick={() => setShowTemplates(true)}><LayoutTemplate size={16} /> {t(language, 'templates')}</BarButton>
       <BarButton title={t(language, 'titleHelp')} onClick={onShowShortcuts}>{t(language, 'help')}</BarButton>
@@ -175,6 +202,8 @@ export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts, onR
       <div className="mx-1 h-6 w-px bg-[#444]" />
       <BarButton title={t(language, 'titleTrace')} onClick={onTraceClick}><ImagePlus size={16} /> {t(language, 'trace')}</BarButton>
       <BarButton title={t(language, 'titleExportSvg')} onClick={doExportSvg}><Download size={16} /> {t(language, 'exportSvg')}</BarButton>
+      <BarButton title={t(language, 'titleExportEps')} onClick={doExportEps}><Download size={16} /> {t(language, 'exportEps')}</BarButton>
+      <BarButton title={t(language, 'titleExportPdf')} onClick={doExportPdf}><Download size={16} /> {t(language, 'exportPdf')}</BarButton>
       <BarButton title={t(language, 'titleExportPng')} onClick={() => doExportPng(2)}><ImageDown size={16} /> {t(language, 'exportPng')}</BarButton>
       <BarButton title={t(language, 'titleCopySvg')} onClick={doCopySvg}><ClipboardCopy size={16} /></BarButton>
       <BarButton title={t(language, 'titleAssets')} onClick={() => setShowAssets(true)}><ImageDown size={16} /> {t(language, 'assets')}</BarButton>

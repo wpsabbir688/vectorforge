@@ -13,6 +13,7 @@ import ShortcutHelpModal from './components/ShortcutHelpModal.jsx';
 import { TEMPLATES } from './lib/templates.js';
 import { moveObject } from './lib/geometry.js';
 import { importSvgToGroup } from './lib/svgImport.js';
+import { importEpsToGroup } from './lib/eps.js';
 import { t } from './lib/i18n.js';
 import Tour from './components/Tour.jsx';
 
@@ -165,6 +166,23 @@ export default function App() {
     }
   };
 
+  // Import EPS text as one centered, selected group. Parser failures
+  // carry a user-facing reason (unsupported operator/feature), which is
+  // shown instead of a generic "malformed" message.
+  const importEps = (text) => {
+    try {
+      const s = useStore.getState();
+      const group = importEpsToGroup(text, s.artboard);
+      if (!group) {
+        alert(t(s.language, 'alertEpsEmpty'));
+        return;
+      }
+      s.addObject(group);
+    } catch (err) {
+      alert(t(useStore.getState().language, 'alertEpsFailed', { msg: err?.message || 'unknown error' }));
+    }
+  };
+
   // Paste SVG markup from the clipboard (e.g. copied out of Figma or
   // Illustrator). Normal text pasting inside inputs is left untouched.
   useEffect(() => {
@@ -184,7 +202,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#1e1e1e] text-gray-100">
-      <TopBar onTraceClick={() => openTrace(null)} onImportSvg={importSvg} onShowShortcuts={() => setShowShortcuts(true)} onReplayTour={() => setTourOpen(true)} />
+      <TopBar onTraceClick={() => openTrace(null)} onImportSvg={importSvg} onImportEps={importEps} onShowShortcuts={() => setShowShortcuts(true)} onReplayTour={() => setTourOpen(true)} />
       {editingComponentId && (
         <div className="flex items-center justify-between bg-blue-700 px-3 py-1.5 text-xs text-white">
           <span>{t(language, 'editBanner', { name: editingComponent?.name || '' })}</span>

@@ -175,19 +175,46 @@ Bring existing vector art in as one centered, selected group:
   patterns are not applied; text width is estimated; arcs are approximated
   as short line segments.
 
+### EPS import (new in Phase 4)
+- **Import EPS** in the top bar parses a PostScript file into one centered,
+  selected group, same UX as SVG import. A small tokenizer + operand-stack
+  interpreter handles a whitelisted subset only: path construction (m/l/c/
+  v/y/h/re), painting (f/F/S/s/B/b), colors (setrgbcolor, setgray,
+  setcmykcolor → RGB), graphics state (q/Q, cm, translate/rotate/scale,
+  linewidth, linecap/join, dash), clipping (clip/eoclip), text
+  (findfont/scalefont/setfont + show), `%%BoundingBox` sizing, and binary
+  preview sections are skipped (only the PostScript part is parsed).
+- Files that use features outside the subset fail with a clear message
+  instead of silently corrupting: raster images, gradient shading (shfill),
+  custom procedures, and colorspace colors are not imported yet.
+- EPS files exported by VectorForge itself round-trip back correctly
+  (rects stay rects, fills and text survive); imported groups are flat —
+  the original group nesting is not preserved.
+
 ### History, files, and export
 - Undo / redo (Ctrl+Z / Ctrl+Shift+Z), snapshot stack capped at 100 steps.
 - **New / Open (JSON) / Save (JSON download)**, autosave to localStorage with
   restore on reload. Saved files are v2 format (`artboards`,
   `activeArtboardId`, objects with `artboardId`); **v1 files (single
   `artboard`) still open** and migrate to a one-artboard document.
-- **Export SVG** (exact vector), **Export PNG** (1x/2x rasterization via
-  canvas), **Copy SVG** to clipboard. Quick exports use the active artboard.
+- **Export SVG** (exact vector), **Export EPS** (Encapsulated PostScript,
+  one file per artboard), **Export PDF** (hand-rolled minimal PDF 1.4, no
+  library), **Export PNG** (1x/2x rasterization via canvas), **Copy SVG** to
+  clipboard. Quick exports use the active artboard.
 - **Export assets** (top bar): export the active artboard — or the current
-  selection — as SVG plus PNGs at multiple sizes (16–1080px, or the Favicon /
-  App icon / Social post presets), downloaded as individual files (no zip).
-  Non-square regions keep their aspect ratio, so the longest edge equals the
-  chosen size. PDF export is not included (it would need a heavier library).
+  selection — as SVG, EPS, or PDF plus PNGs at multiple sizes (16–1080px, or
+  the Favicon / App icon / Social post presets), downloaded as individual
+  files (no zip). Non-square regions keep their aspect ratio, so the longest
+  edge equals the chosen size. The **Optimize SVG** toggle shrinks SVG
+  exports (3-decimal rounding, default attributes and empty `<defs>`
+  removed, comments and `data-*` attributes stripped, text content
+  untouched); the top-bar Export SVG stays exact by default.
+- **Print-export limits (honest):** gradients fall back to their first stop's
+  solid color in EPS and PDF; text uses standard fonts (Arial→Helvetica,
+  Times→Times-Roman, Courier→Courier) and non-Latin text (e.g. Bengali)
+  renders as `?` in PDF — SVG remains the faithful format for those cases.
+  Groups export flattened with their transforms; clip masks export via
+  clip operators; one artboard per EPS/PDF file.
 - **Templates:** blank canvas, logo mark, social post (1080×1080), business
   card — plus artboard presets in the top bar.
 
@@ -206,8 +233,8 @@ zustand with selectors so panels don't re-render the whole tree on every
 pointer move; shapes are memoized and drag updates preserve object identity
 for unchanged objects; drag/resize work is batched through
 requestAnimationFrame; the SVG node count stays proportional to object count
-(no per-pixel work). Production bundle: ~402 KB JS (gzip ~124 KB) plus an
-18.6 KB stylesheet.
+(no per-pixel work). Production bundle: ~492 KB JS (gzip ~148 KB) plus a
+~20 KB stylesheet.
 
 ## Run it
 
@@ -235,15 +262,33 @@ migration (v1 → v2, v2 passthrough, smart-snap behavior).
 
 Playwright tests run against the production build (`vite preview`): studio
 renders, rectangle draw + fill change, SVG export download, multi-artboard
-add/switch, and boolean unite through the real UI. GitHub Actions
-(`.github/workflows/ci.yml`) runs unit tests, the production build, and the
-Playwright suite on every push/PR to main.
+add/switch, boolean unite through the real UI, and EPS + PDF export
+downloads. GitHub Actions (`.github/workflows/ci.yml`) runs unit tests, the
+production build, and the Playwright suite on every push/PR to main.
 
-Current result: **84/84 unit tests pass** (27 geometry + 9 trace + 14 SVG
-import + 5 gradients + 9 booleans + 12 path ops + 8 artboards) and **5/5
-Playwright tests pass**.
+Current result: **123/123 unit tests pass** (27 geometry + 9 trace + 14 SVG
+import + 5 gradients + 9 booleans + 12 path ops + 8 artboards + 18 Phase 3 +
+12 EPS + 4 PDF + 5 SVG optimizer) and **11/11 Playwright tests pass**.
 
 ## Changelog
+
+### Phase 4 (2026-10-24) — production export
+- EPS export: valid Encapsulated PostScript per artboard (header,
+  `%%BoundingBox`, y-flip CTM, `re` for plain rects, fills/strokes, group
+  transforms, clip operators, standard-font text) from the top bar and the
+  asset panel.
+- EPS import: whitelisted-subset PostScript parser (no eval, no arbitrary
+  execution) into one centered, selected group; clear failure messages for
+  images, gradient shading, procedures, and unknown operators; VectorForge
+  exports round-trip back correctly (unit-tested).
+- PDF export: hand-rolled minimal PDF 1.4 (zero new dependencies) — catalog,
+  pages, MediaBox, path/fill/stroke/clip operators, Type1 fonts, verified
+  xref offsets (unit-tested) — from the top bar and the asset panel.
+- SVG optimizer: pure-function shrinker (3-decimal rounding, default
+  attributes, empty `<defs>`, comments, `data-*` stripped; text untouched)
+  as an opt-in toggle in the asset panel; top-bar Export SVG stays exact.
+- Limits (documented above): gradients → first stop; non-Latin PDF text →
+  `?`; imported EPS groups flatten; one artboard per file.
 
 ### Phase 3 (2026-10-24) — platform
 - PWA: installable (manifest + 192/512px icons), offline app shell via
@@ -279,7 +324,8 @@ Playwright tests pass**.
 - Multiple artboards (add / duplicate / delete / rename / switch); v1
   single-artboard files and autosaves still open via migration.
 - Asset export panel: multi-size PNGs, SVG, Favicon / App icon / Social
-  post presets, artboard or selection scope. No PDF, no zip (documented).
+  post presets, artboard or selection scope. No PDF, no zip (documented
+  at the time; PDF arrived in Phase 4).
 
 ### Phase 1 (2026-10-24) — reliability + quick wins
 - React error boundary: a render crash now shows a recovery screen (Reload /
@@ -299,7 +345,7 @@ Playwright tests pass**.
 - Collaboration / multi-user editing
 - Cloud save (localStorage autosave + JSON files only)
 - A Web Worker for tracing (async busy-state tracing instead; see above)
-- PDF export, zip export (asset export downloads individual files)
+- Zip export (asset export downloads individual files)
 - Non-destructive (live) booleans — Phase 2 booleans are destructive but undoable
 
 ## Deploy
