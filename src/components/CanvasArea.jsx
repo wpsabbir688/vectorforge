@@ -585,7 +585,8 @@ export default function CanvasArea({ onImageDrop }) {
     const sel = s.getSelectedObjects();
     if (sel.length === 0) return;
     s.beginDrag();
-    const base = s.dragSnapshot;
+    // Re-read: beginDrag updates the store, but `s` is the pre-update snapshot.
+    const base = useStore.getState().dragSnapshot;
     if (sel.length === 1) {
       const obj = sel[0];
       const localBox = bboxOf(obj);
@@ -609,7 +610,7 @@ export default function CanvasArea({ onImageDrop }) {
     sessionRef.current = {
       kind: 'rotate', center, startAngle,
       startRotation: sel.length === 1 ? (sel[0].rotation || 0) : 0,
-      single: sel.length === 1, objId: sel[0]?.id, ids: sel.map((o) => o.id), base: s.dragSnapshot,
+      single: sel.length === 1, objId: sel[0]?.id, ids: sel.map((o) => o.id), base: useStore.getState().dragSnapshot,
     };
   }
 
