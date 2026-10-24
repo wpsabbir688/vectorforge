@@ -3,7 +3,8 @@ import { useStore } from '../store/useStore.js';
 import {
   uid, bboxOf, rotatedBboxOf, bboxUnion, buildPathD, smoothStrokeD,
   polygonPoints, hitTestObject, moveObject, scaleObject, rotatePoint,
-  rotateObjectGeometry, snapValue, gradientCoords, round2,
+  rotateObjectGeometry, snapValue, gradientCoords, round2, pathDOf,
+  findSmartSnap,
 } from '../lib/geometry.js';
 
 // ---------- shape rendering (memoized: unchanged objects keep identity) ----------
@@ -16,8 +17,11 @@ function rotAttr(obj, cx, cy) {
   return obj.rotation ? `rotate(${obj.rotation} ${round2(cx)} ${round2(cy)})` : undefined;
 }
 
-const ShapeView = memo(function ShapeView({ obj }) {
+const ShapeView = memo(function ShapeView({ obj, asClip, textPathRef }) {
   if (obj.visible === false) return null;
+  // Mask objects are not artwork: they only exist as clipPath content
+  // (rendered with asClip inside <defs>). Everything else draws normally.
+  if (obj.isMask && !asClip) return null;
   const fill = fillOf(obj);
   const stroke = obj.stroke ?? 'none';
   const sw = obj.strokeWidth ?? 0;
@@ -48,7 +52,7 @@ const ShapeView = memo(function ShapeView({ obj }) {
       const b = bboxOf(obj);
       const cx = b.x + b.w / 2;
       const cy = b.y + b.h / 2;
-      return <path d={buildPathD(obj.points, obj.closed)} fill={obj.closed ? fill : 'none'} stroke={obj.closed ? stroke : (stroke === 'none' ? '#111111' : stroke)} strokeWidth={obj.closed ? sw : Math.max(sw, 1)} opacity={opacity} style={blend} transform={rotAttr(obj, cx, cy)} />;
+      return <path id={`vf-obj-${obj.id}`} d={pathDOf(obj)} fill={obj.closed ? fill : 'none'} stroke={obj.closed ? stroke : (stroke === 'none' ? '#111111' : stroke)} strokeWidth={obj.closed ? sw : Math.max(sw, 1)} opacity={opacity} style={blend} transform={rotAttr(obj, cx, cy)} fillRule={obj.contours && obj.contours.length > 0 ? 'evenodd' : undefined} />;
     }
     case 'brush':
       return <path d={smoothStrokeD(obj.raw)} fill="none" stroke={stroke === 'none' ? '#111111' : stroke} strokeWidth={Math.max(sw, 1)} strokeLinecap="round" strokeLinejoin="round" opacity={opacity} style={blend} />;
@@ -56,6 +60,16 @@ const ShapeView = memo(function ShapeView({ obj }) {
       const b = bboxOf(obj);
       const cx = b.x + b.w / 2;
       const cy = b.y + b.h / 2;
+      // Text on path: the path element carries id="vf-obj-<pathId>" (see
+      // the path case above); textPath positions the text along it.
+      // Multi-line text collapses to one line on a path.
+      if (textPathRef) {
+        return (
+          <text fontFamily={obj.fontFamily || 'Arial'} fontSize={obj.fontSize || 32} fontWeight={obj.fontWeight || 400} fill={obj.fill || '#111111'} opacity={opacity} style={blend}>
+            <textPath href={`#vf-obj-${textPathRef}`} startOffset="0">{String(obj.text ?? '').replace(/\n/g, ' ')}</textPath>
+          </text>
+        );
+      }
       const lines = String(obj.text ?? '').split('\n');
       return (
         <text x={obj.x} y={obj.y + (obj.fontSize || 32)} fontFamily={obj.fontFamily || 'Arial'} fontSize={obj.fontSize || 32} fontWeight={obj.fontWeight || 400} fill={obj.fill || '#111111'} opacity={opacity} style={blend} transform={rotAttr(obj, cx, cy)}>
@@ -88,7 +102,7 @@ const ShapeView = memo(function ShapeView({ obj }) {
     case 'group':
       return (
         <g opacity={opacity}>
-          {(obj.children || []).map((c) => <ShapeView key={c.id} obj={c} />)}
+          {(obj.children || []).map((c) => <ShapeView key={c.id} obj={c} asClip={asClip} textPathRef={textPathRef} />)}
         </g>
       );
     default:
@@ -178,7 +192,14 @@ function RulerStrip({ axis, pan, zoom, onGuideDown, onGuideMove, onGuideUp }) {
 }
 
 export default function CanvasArea({ onImageDrop }) {
-  const objects = useStore((s) => s.objects);
+  const allObjects = useStore((s) => s.objects);
+  const activeArtboardId = useStore((s) => s.activeArtboardId);
+  // Only the active artboard's objects are drawn, hit-tested, or listed.
+  // Objects without artboardId (legacy in-memory data) count as active.
+  const objects = useMemo(
+    () => allObjects.filter((o) => !o.artboardId || o.artboardId === activeArtboardId),
+    [allObjects, activeArtboardId]
+  );
   const selection = useStore((s) => s.selection);
   const tool = useStore((s) => s.tool);
   const zoom = useStore((s) => s.zoom);
@@ -203,6 +224,7 @@ export default function CanvasArea({ onImageDrop }) {
   const [marquee, setMarquee] = useState(null);
   const [brushPreview, setBrushPreview] = useState(null);
   const [dropActive, setDropActive] = useState(false);
+  const [smartGuides, setSmartGuides] = useState([]); // alignment guides while dragging
 
   const store = useStore;
 
@@ -242,6 +264,19 @@ export default function CanvasArea({ onImageDrop }) {
   }, [selectedObjects]);
 
   const gradients = useMemo(() => collectGradients(objects), [objects]);
+
+  // Text-on-path resolution: text id -> referenced path id, but only when
+  // the path is a visible top-level object on the active artboard.
+  const textPathRefs = useMemo(() => {
+    const m = {};
+    for (const o of objects) {
+      if (o.type === 'text' && o.pathId) {
+        const target = objects.find((p) => p.id === o.pathId && p.type === 'path' && p.visible !== false);
+        if (target) m[o.id] = target.id;
+      }
+    }
+    return m;
+  }, [objects]);
 
   function hitTop(pt) {
     for (let i = objects.length - 1; i >= 0; i--) {
@@ -443,14 +478,29 @@ export default function CanvasArea({ onImageDrop }) {
         const ids = new Set(st.selection);
         let mdx = dx;
         let mdy = dy;
-        if (st.snap && sess.startBox) {
-          // Snap the selection's top-left to the grid when close.
-          const cur = st.getSelectionBox();
-          if (cur) {
-            const sx = snapValue(cur.x, 20);
-            const sy = snapValue(cur.y, 20);
-            if (sx !== cur.x) mdx += sx - cur.x;
-            if (sy !== cur.y) mdy += sy - cur.y;
+        const cur = st.getSelectionBox();
+        if (cur) {
+          // Smart guides: snap the moving box's edges/center to other
+          // objects' edges/centers. Smart snap wins per axis; grid snap
+          // only fills in on axes the smart snap did not fix.
+          const others = st.getActiveObjects()
+            .filter((o) => !ids.has(o.id) && o.visible !== false)
+            .map((o) => rotatedBboxOf(o));
+          const moved = { x: cur.x + mdx, y: cur.y + mdy, w: cur.w, h: cur.h };
+          const smart = findSmartSnap(moved, others, 6 / st.zoom);
+          mdx += smart.dx;
+          mdy += smart.dy;
+          setSmartGuides(smart.guides);
+          if (st.snap && sess.startBox) {
+            const cur2 = { x: cur.x + mdx, y: cur.y + mdy, w: cur.w, h: cur.h };
+            if (smart.dx === 0) {
+              const sx = snapValue(cur2.x, 20);
+              if (sx !== cur2.x) mdx += sx - cur2.x;
+            }
+            if (smart.dy === 0) {
+              const sy = snapValue(cur2.y, 20);
+              if (sy !== cur2.y) mdy += sy - cur2.y;
+            }
           }
         }
         st.live((list) => list.map((o) => (ids.has(o.id) ? moveObject(o, mdx, mdy) : o)));
@@ -538,6 +588,35 @@ export default function CanvasArea({ onImageDrop }) {
     }
   }
 
+  // Snap the edges a resize handle moves to other objects' edges/centers.
+  // Returns the adjusted box plus guide lines to draw.
+  function snapResizeBox(nb, handle, others, threshold) {
+    let box = { ...nb };
+    const guides = [];
+    const tryEdge = (axis, movingVal, apply) => {
+      let best = null;
+      for (const b of others) {
+        const vals = axis === 'x' ? [b.x, b.x + b.w / 2, b.x + b.w] : [b.y, b.y + b.h / 2, b.y + b.h];
+        for (const v of vals) {
+          const d = v - movingVal;
+          if (Math.abs(d) <= threshold && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, v, box: b };
+        }
+      }
+      if (!best) return;
+      box = apply(box, best.v);
+      if (axis === 'x') {
+        guides.push({ axis: 'v', pos: best.v, start: Math.min(box.y, best.box.y) - 20, end: Math.max(box.y + box.h, best.box.y + best.box.h) + 20 });
+      } else {
+        guides.push({ axis: 'h', pos: best.v, start: Math.min(box.x, best.box.x) - 20, end: Math.max(box.x + box.w, best.box.x + best.box.w) + 20 });
+      }
+    };
+    if (handle.includes('e')) tryEdge('x', box.x + box.w, (b, v) => ({ ...b, w: Math.max(1, v - b.x) }));
+    if (handle.includes('w')) tryEdge('x', box.x, (b, v) => ({ ...b, x: v, w: Math.max(1, b.x + b.w - v) }));
+    if (handle.includes('s')) tryEdge('y', box.y + box.h, (b, v) => ({ ...b, h: Math.max(1, v - b.y) }));
+    if (handle.includes('n')) tryEdge('y', box.y, (b, v) => ({ ...b, y: v, h: Math.max(1, b.y + b.h - v) }));
+    return { box, guides };
+  }
+
   function applyResize(pt, keepAspect) {
     const st = store.getState();
     const sess = sessionRef.current;
@@ -551,14 +630,20 @@ export default function CanvasArea({ onImageDrop }) {
       const local = obj.rotation ? rotatePoint(pt, center, -obj.rotation) : pt;
       const nb = boxFromHandle(sess.handle, localBox, local, keepAspect);
       if (!nb) return;
-      st.live((list) => list.map((o) => (o.id === sess.objId ? scaleObject(base.find((b) => b.id === o.id), localBox, nb) : o)));
+      const others = st.getActiveObjects().filter((o) => o.id !== sess.objId && o.visible !== false).map((o) => rotatedBboxOf(o));
+      const snapped = snapResizeBox(nb, sess.handle, others, 6 / st.zoom);
+      setSmartGuides(snapped.guides);
+      st.live((list) => list.map((o) => (o.id === sess.objId ? scaleObject(base.find((b) => b.id === o.id), localBox, snapped.box) : o)));
     } else {
       const nb = boxFromHandle(sess.handle, sess.unionBox, pt, keepAspect);
       if (!nb) return;
+      const others = st.getActiveObjects().filter((o) => !sess.ids.includes(o.id) && o.visible !== false).map((o) => rotatedBboxOf(o));
+      const snapped = snapResizeBox(nb, sess.handle, others, 6 / st.zoom);
+      setSmartGuides(snapped.guides);
       st.live((list) => list.map((o) => {
         if (!sess.ids.includes(o.id)) return o;
         const b = base.find((x) => x.id === o.id);
-        return scaleObject(b, sess.unionBox, nb);
+        return scaleObject(b, sess.unionBox, snapped.box);
       }));
     }
   }
@@ -606,6 +691,7 @@ export default function CanvasArea({ onImageDrop }) {
     const s = store.getState();
     const sess = sessionRef.current;
     sessionRef.current = null;
+    setSmartGuides([]);
     if (guideDragRef.current) { endGuideDrag(e); return; }
     if (!sess) return;
     if (sess.kind === 'pan' || sess.kind === 'pen' || sess.kind === 'direct' || sess.kind === 'move' || sess.kind === 'resize' || sess.kind === 'rotate') {
@@ -630,7 +716,7 @@ export default function CanvasArea({ onImageDrop }) {
         if (!e.shiftKey) { s.select([]); s.selectGuide(null); }
         return;
       }
-      const hits = s.objects.filter((o) => {
+      const hits = objects.filter((o) => {
         if (o.locked || o.visible === false) return false;
         const b = rotatedBboxOf(o);
         return b.x < box.x + box.w && b.x + b.w > box.x && b.y < box.y + box.h && b.y + b.h > box.y;
@@ -849,6 +935,12 @@ export default function CanvasArea({ onImageDrop }) {
               </linearGradient>
             );
           })}
+          {/* Clipping masks: mask geometry lives in <clipPath>, never drawn */}
+          {objects.filter((o) => o.isMask && o.visible !== false).map((m) => (
+            <clipPath key={m.id} id={`vf-clip-${m.id}`}>
+              <ShapeView obj={m} asClip />
+            </clipPath>
+          ))}
         </defs>
         <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
           {grid && (
@@ -856,7 +948,13 @@ export default function CanvasArea({ onImageDrop }) {
           )}
           {/* Artboard */}
           <rect x={0} y={0} width={artboard.w} height={artboard.h} fill={artboard.bg} stroke="#555" strokeWidth={1 / zoom} />
-          {objects.map((o) => <ShapeView key={o.id} obj={o} />)}
+          {objects.map((o) => (o.clipId ? (
+            <g key={o.id} clipPath={`url(#vf-clip-${o.clipId})`}>
+              <ShapeView obj={o} textPathRef={textPathRefs[o.id]} />
+            </g>
+          ) : (
+            <ShapeView key={o.id} obj={o} textPathRef={textPathRefs[o.id]} />
+          )))}
 
           {/* Ruler guides (not document objects: never exported or saved) */}
           {guides.map((g) => {
@@ -882,6 +980,13 @@ export default function CanvasArea({ onImageDrop }) {
               </g>
             );
           })}
+
+          {/* Smart guides (magenta alignment lines while dragging) */}
+          {smartGuides.map((g, i) => (g.axis === 'v' ? (
+            <line key={i} x1={g.pos} y1={g.start} x2={g.pos} y2={g.end} stroke="#f472b6" strokeWidth={1 / zoom} pointerEvents="none" />
+          ) : (
+            <line key={i} x1={g.start} y1={g.pos} x2={g.end} y2={g.pos} stroke="#f472b6" strokeWidth={1 / zoom} pointerEvents="none" />
+          )))}
 
           {/* Pen draft */}
           {penDraft && penDraft.points.length > 0 && (

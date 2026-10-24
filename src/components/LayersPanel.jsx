@@ -8,7 +8,9 @@ const TYPE_LABEL = {
 };
 
 export default function LayersPanel() {
-  const objects = useStore((s) => s.objects);
+  const allObjects = useStore((s) => s.objects);
+  const activeArtboardId = useStore((s) => s.activeArtboardId);
+  const objects = allObjects.filter((o) => !o.artboardId || o.artboardId === activeArtboardId);
   const selection = useStore((s) => s.selection);
   const select = useStore((s) => s.select);
   const updateObject = useStore((s) => s.updateObject);
@@ -71,7 +73,7 @@ export default function LayersPanel() {
                   className="min-w-0 flex-1 truncate"
                   onDoubleClick={(e) => { e.stopPropagation(); setRenaming(o.id); setNameDraft(o.name || ''); }}
                 >
-                  {o.name || TYPE_LABEL[o.type] || o.type}
+                  {o.name || TYPE_LABEL[o.type] || o.type}{o.isMask ? ' · mask' : ''}{o.clipId ? ' · clipped' : ''}
                 </span>
               )}
               <span className="shrink-0 text-[10px] opacity-60">{TYPE_LABEL[o.type] || o.type}</span>

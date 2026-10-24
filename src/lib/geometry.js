@@ -64,6 +64,22 @@ export function buildPathD(points, closed) {
   return d;
 }
 
+// Path d for a path object. When `contours` is present (boolean results,
+// stroke outlines), every contour is emitted as its own closed subpath and
+// the caller renders with fill-rule="evenodd"; otherwise the classic single
+// contour from `points` is used.
+export function pathDOf(obj) {
+  if (obj.contours && obj.contours.length > 0) {
+    return obj.contours.map((c) => {
+      if (c.length === 0) return '';
+      const move = `M ${round2(c[0].x)} ${round2(c[0].y)}`;
+      const lines = c.slice(1).map((p) => `L ${round2(p.x)} ${round2(p.y)}`).join(' ');
+      return `${move} ${lines} Z`;
+    }).filter(Boolean).join(' ');
+  }
+  return buildPathD(obj.points, obj.closed);
+}
+
 // Smooth a freehand stroke (array of {x,y}) into cubic bezier segments via
 // Catmull-Rom -> Bezier conversion. Returns an SVG path d string.
 export function smoothStrokeD(raw) {
@@ -125,6 +141,9 @@ export function bboxOf(obj) {
           if (p.h1) all.push(p.h1);
           if (p.h2) all.push(p.h2);
         }
+      }
+      if (obj.contours) {
+        for (const c of obj.contours) all.push(...c);
       }
       if (obj.raw) all.push(...obj.raw);
       if (all.length === 0) return { x: 0, y: 0, w: 0, h: 0 };
@@ -253,6 +272,9 @@ export function scaleObject(obj, oldBox, newBox) {
         h1: p.h1 ? map(p.h1) : null,
         h2: p.h2 ? map(p.h2) : null,
       }));
+      if (obj.contours) {
+        next.contours = obj.contours.map((c) => c.map((p) => map(p)));
+      }
       break;
     case 'brush':
       next.raw = obj.raw.map((p) => map(p));
@@ -300,6 +322,9 @@ export function moveObject(obj, dx, dy) {
         h1: p.h1 ? { x: p.h1.x + dx, y: p.h1.y + dy } : null,
         h2: p.h2 ? { x: p.h2.x + dx, y: p.h2.y + dy } : null,
       }));
+      if (obj.contours) {
+        next.contours = obj.contours.map((c) => c.map((p) => ({ x: p.x + dx, y: p.y + dy })));
+      }
       break;
     case 'brush':
       next.raw = obj.raw.map((p) => ({ x: p.x + dx, y: p.y + dy }));
@@ -319,7 +344,10 @@ export function escapeXml(s) {
     .replace(/"/g, '&quot;');
 }
 
-export function objectToSvg(obj, gradientMap) {
+// ctx (optional): { pathIdsNeeded: Set<string> } — path objects whose id
+// must be emitted (for textPath references). Mask objects render their
+// geometry normally here; serializeSvg decides where they appear.
+export function objectToSvg(obj, gradientMap, ctx) {
   const gid = gradientMap instanceof Map ? gradientMap.get(obj.id) : gradientMap;
   const fill = obj.fillType === 'gradient' && obj.gradient ? `url(#${gid})` : obj.fill || 'none';
   const stroke = obj.stroke || 'none';
@@ -329,7 +357,7 @@ export function objectToSvg(obj, gradientMap) {
   const blend = obj.blendMode && obj.blendMode !== 'normal' ? ` style="mix-blend-mode:${obj.blendMode}"` : '';
   const rotAttr = (cx, cy) => (obj.rotation ? ` transform="rotate(${round2(obj.rotation)} ${round2(cx)} ${round2(cy)})"` : '');
   if (obj.type === 'group') {
-    const inner = (obj.children || []).map((c) => objectToSvg(c, gradientMap)).join('\n');
+    const inner = (obj.children || []).map((c) => objectToSvg(c, gradientMap, ctx)).join('\n');
     const opacity = obj.opacity ?? 1;
     return `<g opacity="${opacity}">\n${inner}\n</g>`;
   }
@@ -362,14 +390,23 @@ export function objectToSvg(obj, gradientMap) {
       const rotAttr = obj.rotation ? ` transform="rotate(${round2(obj.rotation)} ${round2(b.x + b.w / 2)} ${round2(b.y + b.h / 2)})"` : '';
       return `<polygon points="${pts}" ${common}${blend}${rotAttr}/>`;
     }
-    case 'path':
-      return `<path d="${buildPathD(obj.points, obj.closed)}" fill="${obj.closed ? fill : 'none'}" stroke="${obj.closed ? stroke : obj.stroke || '#111111'}" stroke-width="${obj.closed ? sw : Math.max(sw, 1)}" opacity="${opacity}"${blend}/>`;
+    case 'path': {
+      const idAttr = ctx?.pathIdsNeeded?.has(obj.id) ? ` id="vf-path-${obj.id}"` : '';
+      const evenodd = obj.contours && obj.contours.length > 0 ? ' fill-rule="evenodd"' : '';
+      return `<path${idAttr} d="${pathDOf(obj)}" fill="${obj.closed ? fill : 'none'}" stroke="${obj.closed ? stroke : obj.stroke || '#111111'}" stroke-width="${obj.closed ? sw : Math.max(sw, 1)}" opacity="${opacity}"${blend}${evenodd}/>`;
+    }
     case 'brush':
       return `<path d="${smoothStrokeD(obj.raw)}" fill="none" stroke="${stroke}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" opacity="${opacity}"${blend}/>`;
     case 'text': {
       const b = bboxOf(obj);
       const rotAttr = obj.rotation ? ` transform="rotate(${round2(obj.rotation)} ${round2(b.x + b.w / 2)} ${round2(b.y + b.h / 2)})"` : '';
-      return `<text x="${round2(obj.x)}" y="${round2(obj.y + (obj.fontSize || 32))}" font-family="${escapeXml(obj.fontFamily || 'Arial')}" font-size="${obj.fontSize || 32}" font-weight="${obj.fontWeight || 400}" fill="${obj.fill || '#111111'}" opacity="${opacity}"${blend}${rotAttr}>${escapeXml(obj.text || '')}</text>`;
+      const fontAttrs = `font-family="${escapeXml(obj.fontFamily || 'Arial')}" font-size="${obj.fontSize || 32}" font-weight="${obj.fontWeight || 400}" fill="${obj.fill || '#111111'}" opacity="${opacity}"${blend}${rotAttr}`;
+      // Text on path: the referenced path element carries id="vf-path-<id>"
+      // (see serializeSvg); fall back to plain text when it is missing.
+      if (obj.pathId && ctx?.pathDById?.has(obj.pathId)) {
+        return `<text ${fontAttrs}><textPath href="#vf-path-${obj.pathId}" startOffset="0">${escapeXml(obj.text || '')}</textPath></text>`;
+      }
+      return `<text x="${round2(obj.x)}" y="${round2(obj.y + (obj.fontSize || 32))}" ${fontAttrs}>${escapeXml(obj.text || '')}</text>`;
     }
     default:
       return '';
@@ -417,7 +454,32 @@ export function serializeSvg(artboard, objects) {
     });
   };
   collect(objects);
-  const body = objects.filter((o) => o.visible !== false).map((o) => objectToSvg(o, idOf)).join('\n');
+  // Text-on-path references: every text object's pathId needs its path
+  // element emitted with an id, and the path's d for nothing else — the
+  // reference is by id, resolved by the SVG renderer.
+  const pathIdsNeeded = new Set();
+  const pathDById = new Map();
+  for (const o of objects) {
+    if (o.type === 'text' && o.pathId) {
+      const target = objects.find((p) => p.id === o.pathId && p.type === 'path');
+      if (target) {
+        pathIdsNeeded.add(target.id);
+        pathDById.set(target.id, pathDOf(target));
+      }
+    }
+  }
+  const ctx = { pathIdsNeeded, pathDById };
+  // Clipping masks (top-level only): mask objects render into <clipPath>
+  // defs and are skipped in the body; clipped objects are wrapped in <g>.
+  const masks = objects.filter((o) => o.isMask && o.visible !== false);
+  for (const m of masks) {
+    defs.push(`<clipPath id="vf-clip-${m.id}">${objectToSvg(m, idOf, ctx)}</clipPath>`);
+  }
+  const body = objects.filter((o) => o.visible !== false && !o.isMask).map((o) => {
+    const svg = objectToSvg(o, idOf, ctx);
+    if (o.clipId) return `<g clip-path="url(#vf-clip-${o.clipId})">\n${svg}\n</g>`;
+    return svg;
+  }).join('\n');
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${artboard.w}" height="${artboard.h}" viewBox="0 0 ${artboard.w} ${artboard.h}">\n<defs>${defs.join('')}</defs>\n<rect width="100%" height="100%" fill="${artboard.bg || '#ffffff'}"/>\n${body}\n</svg>`;
 }
 
@@ -492,6 +554,9 @@ export function rotateObjectGeometry(obj, center, angleDeg) {
         h1: p.h1 ? rp(p.h1) : null,
         h2: p.h2 ? rp(p.h2) : null,
       }));
+      if (obj.contours) {
+        next.contours = obj.contours.map((c) => c.map((p) => rp(p)));
+      }
       break;
     case 'brush':
       next.raw = obj.raw.map((p) => rp(p));
@@ -505,12 +570,102 @@ export function rotateObjectGeometry(obj, center, angleDeg) {
   return next;
 }
 
+// ---- Multi-artboard documents + migration -------------------------------
+// v1 documents: { artboard, objects }. v2 documents: { artboards,
+// activeArtboardId, objects } where each object carries artboardId.
+// migrateDocument accepts either shape (and already-migrated docs) and
+// always returns the v2 shape. Old files open as a one-artboard document;
+// objects without artboardId land on the active artboard.
+export function migrateDocument(doc) {
+  if (!doc || !Array.isArray(doc.objects)) throw new Error('Invalid VectorForge document');
+  let artboards;
+  let activeArtboardId;
+  if (Array.isArray(doc.artboards) && doc.artboards.length > 0) {
+    artboards = doc.artboards.map((a, i) => ({
+      id: a.id || `art-${i}`,
+      name: a.name || `Artboard ${i + 1}`,
+      w: a.w || 1080,
+      h: a.h || 1080,
+      bg: a.bg || '#ffffff',
+    }));
+    activeArtboardId = doc.activeArtboardId && artboards.some((a) => a.id === doc.activeArtboardId)
+      ? doc.activeArtboardId
+      : artboards[0].id;
+  } else {
+    const a = doc.artboard || { w: 1080, h: 1080, bg: '#ffffff', name: 'Social 1080 × 1080' };
+    artboards = [{
+      id: a.id || 'art-0',
+      name: a.name || 'Artboard 1',
+      w: a.w || 1080,
+      h: a.h || 1080,
+      bg: a.bg || '#ffffff',
+    }];
+    activeArtboardId = artboards[0].id;
+  }
+  const objects = doc.objects.map((o) => ({
+    ...o,
+    artboardId: o.artboardId && artboards.some((a) => a.id === o.artboardId)
+      ? o.artboardId
+      : activeArtboardId,
+  }));
+  return { artboards, activeArtboardId, objects };
+}
+
 // Parse a VectorForge JSON document back into objects (round-trip safe).
+// Accepts v1 (single artboard) and v2 (multi-artboard) files.
 export function parseDocument(json) {
   const doc = typeof json === 'string' ? JSON.parse(json) : json;
-  if (!doc || !Array.isArray(doc.objects)) throw new Error('Invalid VectorForge document');
-  return {
-    artboard: doc.artboard || { w: 1080, h: 1080, bg: '#ffffff' },
-    objects: doc.objects,
-  };
+  return migrateDocument(doc);
 }
+
+// ---- Smart guides --------------------------------------------------------
+// Find alignment snaps between a moving box and other boxes. Returns the
+// adjustment to apply ({dx, dy}) plus guide lines to draw. Each axis snaps
+// independently to the closest edge/center within threshold canvas units.
+export function findSmartSnap(movingBox, otherBoxes, threshold = 6) {
+  const mEdgesX = [
+    { v: movingBox.x, kind: 'left' },
+    { v: movingBox.x + movingBox.w / 2, kind: 'center' },
+    { v: movingBox.x + movingBox.w, kind: 'right' },
+  ];
+  const mEdgesY = [
+    { v: movingBox.y, kind: 'top' },
+    { v: movingBox.y + movingBox.h / 2, kind: 'middle' },
+    { v: movingBox.y + movingBox.h, kind: 'bottom' },
+  ];
+  let bestX = null;
+  let bestY = null;
+  for (const b of otherBoxes) {
+    const oX = [b.x, b.x + b.w / 2, b.x + b.w];
+    const oY = [b.y, b.y + b.h / 2, b.y + b.h];
+    for (const m of mEdgesX) {
+      for (const o of oX) {
+        const d = o - m.v;
+        if (Math.abs(d) <= threshold && (!bestX || Math.abs(d) < Math.abs(bestX.d))) {
+          bestX = { d, pos: o, other: b };
+        }
+      }
+    }
+    for (const m of mEdgesY) {
+      for (const o of oY) {
+        const d = o - m.v;
+        if (Math.abs(d) <= threshold && (!bestY || Math.abs(d) < Math.abs(bestY.d))) {
+          bestY = { d, pos: o, other: b };
+        }
+      }
+    }
+  }
+  const guides = [];
+  if (bestX) {
+    const minY = Math.min(movingBox.y, bestX.other.y) - 20;
+    const maxY = Math.max(movingBox.y + movingBox.h, bestX.other.y + bestX.other.h) + 20;
+    guides.push({ axis: 'v', pos: bestX.pos, start: minY, end: maxY });
+  }
+  if (bestY) {
+    const minX = Math.min(movingBox.x, bestY.other.x) - 20;
+    const maxX = Math.max(movingBox.x + movingBox.w, bestY.other.x + bestY.other.w) + 20;
+    guides.push({ axis: 'h', pos: bestY.pos, start: minX, end: maxX });
+  }
+  return { dx: bestX ? bestX.d : 0, dy: bestY ? bestY.d : 0, guides };
+}
+

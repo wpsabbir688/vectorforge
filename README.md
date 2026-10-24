@@ -21,6 +21,13 @@ Run it locally (see below) or deploy the `dist/` folder to any static host
   Ctrl+wheel, zoom buttons, or the zoom percentage control.
 - Grid toggle, snap-to-grid toggle, artboard size presets (A4, 1080×1080 social,
   1920×1080, business card, custom) and artboard background color.
+- **Multiple artboards:** add, duplicate (with its objects), delete, rename,
+  and switch from the top bar. Each artboard has its own size, background,
+  and objects; only the active artboard is drawn and exported.
+- **Smart guides:** while dragging or resizing, magenta lines appear when
+  the moving object's edges or center align with another object's
+  edges/center, and the object snaps to them. Grid snap still works and only
+  fills in on axes the smart snap did not fix.
 - Artboard-aware alignment: a single selection aligns to the artboard,
   multiple selections align to their shared bounding box.
 - **Rulers + guides:** top and left rulers with tick marks that follow zoom
@@ -52,16 +59,37 @@ Run it locally (see below) or deploy the `dist/` folder to any static host
   forward / send backward / to front / to back, group / ungroup.
 - Groups are real objects: move, resize, rotate, recolor and delete the whole
   group; ungroup to edit members.
+- **Pathfinder booleans** (Align panel): Unite, Subtract, Intersect, Exclude
+  for 2+ selected closed shapes (rect, ellipse, polygon, star, path). The
+  result is a single path keeping the first shape's fill/stroke; rotation is
+  baked in, rect corner radius is ignored, open paths are closed implicitly.
+  Text, brush strokes, groups, lines and images are not supported — the
+  buttons disable with a reason when the selection is unsupported.
+- **Outline stroke** (Properties): turns a shape's stroke into a filled path
+  (stroke color becomes the fill). Works for rect, ellipse, line, path, and
+  brush; rect corner radius is ignored and line caps are butt caps.
+- **Simplify + Smooth** (Properties, path/brush only): Simplify drops anchor
+  points with an adjustable tolerance (bezier curves are flattened first);
+  Smooth rounds the shape with Chaikin smoothing. Both are undoable.
+- **Clipping masks** (Align panel): the topmost selected shape becomes the
+  mask for the rest (mask itself is not drawn; Layers shows "· mask" /
+  "· clipped"). Release restores everything. Masks are top-level objects only.
+- **Text on path** (Align panel): select one text + one path to attach the
+  text to the path (multi-line text collapses to one line on a path). Both
+  masks and text-on-path survive JSON save/load and SVG export (clipPath /
+  textPath output).
 
 ### Panels (right side)
-- **Layers:** list, rename (double-click), visibility eye, lock, reorder.
+- **Layers:** list (active artboard only), rename (double-click), visibility
+  eye, lock, reorder, mask/clipped badges.
 - **Properties:** fill color, gradients (linear with angle, or radial with
   center + radius, 2+ stops), stroke color + width, opacity, blend mode,
   corner radius, polygon sides, star points / inner ratio, font family /
-  size / weight, text content, position, size, rotation. Includes swatches
-  and recent colors.
+  size / weight, text content, position, size, rotation, path Simplify /
+  Smooth, Outline stroke. Includes swatches and recent colors.
 - **Align:** left / center / right / top / middle / bottom, distribute
-  horizontally / vertically (3+ objects).
+  horizontally / vertically (3+ objects), Pathfinder booleans, mask, and
+  text-on-path actions.
 
 ### Image Trace (new in v1)
 Turn a PNG/JPG into real editable vector objects:
@@ -112,9 +140,16 @@ Bring existing vector art in as one centered, selected group:
 ### History, files, and export
 - Undo / redo (Ctrl+Z / Ctrl+Shift+Z), snapshot stack capped at 100 steps.
 - **New / Open (JSON) / Save (JSON download)**, autosave to localStorage with
-  restore on reload.
+  restore on reload. Saved files are v2 format (`artboards`,
+  `activeArtboardId`, objects with `artboardId`); **v1 files (single
+  `artboard`) still open** and migrate to a one-artboard document.
 - **Export SVG** (exact vector), **Export PNG** (1x/2x rasterization via
-  canvas), **Copy SVG** to clipboard.
+  canvas), **Copy SVG** to clipboard. Quick exports use the active artboard.
+- **Export assets** (top bar): export the active artboard — or the current
+  selection — as SVG plus PNGs at multiple sizes (16–1080px, or the Favicon /
+  App icon / Social post presets), downloaded as individual files (no zip).
+  Non-square regions keep their aspect ratio, so the longest edge equals the
+  chosen size. PDF export is not included (it would need a heavier library).
 - **Templates:** blank canvas, logo mark, social post (1080×1080), business
   card — plus artboard presets in the top bar.
 
@@ -133,8 +168,8 @@ zustand with selectors so panels don't re-render the whole tree on every
 pointer move; shapes are memoized and drag updates preserve object identity
 for unchanged objects; drag/resize work is batched through
 requestAnimationFrame; the SVG node count stays proportional to object count
-(no per-pixel work). Production bundle: ~349 KB JS (gzip ~108 KB) plus an
-18 KB stylesheet.
+(no per-pixel work). Production bundle: ~402 KB JS (gzip ~124 KB) plus an
+18.6 KB stylesheet.
 
 ## Run it
 
@@ -155,17 +190,36 @@ serialization round-trip), the tracing wrapper (a tiny synthetic image
 produces non-empty SVG path output; color-count and threshold options change
 the output as expected; background handling drops the white layer), the SVG
 importer (element mapping, transforms, gradients, security exclusions, path
-data including arcs) and radial gradient export.
+data including arcs), radial gradient export, boolean operations (areas for
+unite/subtract/intersect/exclude, holes, empty results), path operations
+(flattening, simplification, smoothing, stroke outlining), and artboard
+migration (v1 → v2, v2 passthrough, smart-snap behavior).
 
-Playwright smoke tests run against the production build (`vite preview`):
-studio renders, rectangle draw + fill change, SVG export download. GitHub
-Actions (`.github/workflows/ci.yml`) runs unit tests, the production build,
-and the Playwright suite on every push/PR to main.
+Playwright tests run against the production build (`vite preview`): studio
+renders, rectangle draw + fill change, SVG export download, multi-artboard
+add/switch, and boolean unite through the real UI. GitHub Actions
+(`.github/workflows/ci.yml`) runs unit tests, the production build, and the
+Playwright suite on every push/PR to main.
 
-Current result: **55/55 unit tests pass** (27 geometry + 9 trace + 14 SVG
-import + 5 gradients) and **3/3 Playwright smoke tests pass**.
+Current result: **84/84 unit tests pass** (27 geometry + 9 trace + 14 SVG
+import + 5 gradients + 9 booleans + 12 path ops + 8 artboards) and **5/5
+Playwright tests pass**.
 
 ## Changelog
+
+### Phase 2 (2026-10-24) — professional editing
+- Pathfinder booleans (Unite / Subtract / Intersect / Exclude) via
+  polygon-clipping; result is a single multi-contour path (evenodd fill).
+- Outline stroke, Simplify (tolerance slider) + Smooth for paths and brush
+  strokes — all undoable.
+- Smart guides + snap to objects while moving and resizing (grid snap kept
+  as fallback per axis).
+- Text on path (textPath) and clipping masks (clipPath), both surviving
+  JSON save/load and SVG export.
+- Multiple artboards (add / duplicate / delete / rename / switch); v1
+  single-artboard files and autosaves still open via migration.
+- Asset export panel: multi-size PNGs, SVG, Favicon / App icon / Social
+  post presets, artboard or selection scope. No PDF, no zip (documented).
 
 ### Phase 1 (2026-10-24) — reliability + quick wins
 - React error boundary: a render crash now shows a recovery screen (Reload /
@@ -180,12 +234,13 @@ import + 5 gradients) and **3/3 Playwright smoke tests pass**.
 
 ## Not in v1
 
-- Pathfinder boolean operations (unite / subtract / intersect)
 - Gradient mesh
 - Plugins / extensions
 - Collaboration / multi-user editing
 - Cloud save (localStorage autosave + JSON files only)
 - A Web Worker for tracing (async busy-state tracing instead; see above)
+- PDF export, zip export (asset export downloads individual files)
+- Non-destructive (live) booleans — Phase 2 booleans are destructive but undoable
 
 ## Deploy
 

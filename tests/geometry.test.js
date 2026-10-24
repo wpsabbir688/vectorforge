@@ -147,7 +147,9 @@ describe('SVG serialization', () => {
   it('parseDocument round-trips', () => {
     const doc = { artboard: { w: 100, h: 100, bg: '#fff' }, objects: [rect] };
     const back = parseDocument(JSON.stringify(doc));
-    expect(back.objects[0]).toEqual(rect);
+    // v2 migration assigns the single artboard's id to every object.
+    expect(back.objects[0]).toEqual({ ...rect, artboardId: back.artboards[0].id });
+    expect(back.artboards.length).toBe(1);
     expect(() => parseDocument({ nope: true })).toThrow();
   });
   it('gradientCoords 90deg is left-to-right', () => {

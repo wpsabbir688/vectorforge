@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { useStore } from '../store/useStore.js';
+import { strokeOutlineContours } from '../lib/pathops.js';
 
 const SWATCHES = [
   '#111111', '#ffffff', '#ef4444', '#f97316', '#f59e0b', '#84cc16', '#22c55e',
@@ -39,6 +41,10 @@ export default function PropertiesPanel() {
   const recentColors = useStore((s) => s.recentColors);
   const updateSelected = useStore((s) => s.updateSelected);
   const updateObject = useStore((s) => s.updateObject);
+  const simplifySelected = useStore((s) => s.simplifySelected);
+  const smoothSelected = useStore((s) => s.smoothSelected);
+  const outlineStrokeSelected = useStore((s) => s.outlineStrokeSelected);
+  const [tolerance, setTolerance] = useState(2);
 
   const selected = objects.filter((o) => selection.includes(o.id));
   const single = selected.length === 1 ? selected[0] : null;
@@ -172,6 +178,32 @@ export default function PropertiesPanel() {
         </select>
       </Row>
 
+      {single && (single.type === 'path' || single.type === 'brush') && (
+        <div className="mt-2 rounded border border-[#444] p-2">
+          <p className="mb-1 text-xs font-semibold text-gray-300">Path</p>
+          <Row label="Simplify tolerance">
+            <input type="range" min={0.5} max={20} step={0.5} value={tolerance} onChange={(e) => setTolerance(Number(e.target.value))} className="w-24" />
+            <span className="w-10 text-right text-gray-300">{tolerance}px</span>
+          </Row>
+          <div className="mt-1 flex gap-1">
+            <button onClick={() => simplifySelected(tolerance)} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200">Simplify</button>
+            <button onClick={smoothSelected} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200">Smooth</button>
+          </div>
+          <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+            Simplify drops anchor points (undoable). Smooth rounds the shape. Bezier curves are flattened before simplifying.
+          </p>
+        </div>
+      )}
+      {single && strokeOutlineContours(single) && (
+        <div className="mt-2">
+          <button onClick={outlineStrokeSelected} className="rounded bg-[#3a3a3a] px-2 py-1 text-xs text-gray-200">
+            Outline stroke
+          </button>
+          <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+            Turns the stroke into a filled shape (stroke color becomes the fill). Undoable.
+          </p>
+        </div>
+      )}
       {single?.type === 'rect' && (
         <Row label="Corner radius">
           <NumInput value={single.cornerRadius || 0} onChange={(v) => updateObject(single.id, { cornerRadius: v })} min={0} max={500} />

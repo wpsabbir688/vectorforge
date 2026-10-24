@@ -21,7 +21,9 @@ function loadAutosave() {
     const raw = localStorage.getItem(AUTOSAVE_KEY);
     if (!raw) return null;
     const doc = JSON.parse(raw);
-    if (!doc || !Array.isArray(doc.objects) || !doc.artboard) return null;
+    // v1 autosaves have `artboard`; v2 have `artboards`. loadDocument
+    // migrates either shape; anything else is not a valid document.
+    if (!doc || !Array.isArray(doc.objects) || (!doc.artboard && !doc.artboards)) return null;
     return doc;
   } catch {
     return null;
@@ -50,14 +52,18 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Autosave (debounced) on every objects/artboard change.
+  // Autosave (debounced) on every objects/artboard change, in v2 format.
+  // Old v1 autosaves still load: loadDocument migrates them on boot.
   useEffect(() => {
     let timer = null;
     const unsub = useStore.subscribe((s) => {
       clearTimeout(timer);
       timer = setTimeout(() => {
         try {
-          localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({ artboard: s.artboard, objects: s.objects }));
+          localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
+            app: 'vectorforge', version: 2,
+            artboards: s.artboards, activeArtboardId: s.activeArtboardId, objects: s.objects,
+          }));
         } catch {
           // Storage full or private mode: autosave is best-effort.
         }

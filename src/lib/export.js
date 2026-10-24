@@ -21,7 +21,7 @@ export async function copySvgToClipboard(artboard, objects) {
 }
 
 // Rasterize the SVG via an <img> + canvas. Scale 1 = artboard pixels.
-export function exportPng(artboard, objects, scale = 2) {
+export function exportPng(artboard, objects, scale = 2, filename = 'vectorforge.png') {
   return new Promise((resolve, reject) => {
     const svg = serializeSvg(artboard, objects);
     const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
@@ -39,7 +39,7 @@ export function exportPng(artboard, objects, scale = 2) {
         const dl = URL.createObjectURL(b);
         const a = document.createElement('a');
         a.href = dl;
-        a.download = 'vectorforge.png';
+        a.download = filename;
         a.click();
         setTimeout(() => URL.revokeObjectURL(dl), 1000);
         resolve(canvas.width * canvas.height);

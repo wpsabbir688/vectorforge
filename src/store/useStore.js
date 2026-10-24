@@ -1,7 +1,11 @@
 import { create } from 'zustand';
 import {
-  uid, bboxOf, rotatedBboxOf, bboxUnion, moveObject, scaleObject,
+  uid, bboxOf, rotatedBboxOf, bboxUnion, moveObject, scaleObject, migrateDocument,
 } from '../lib/geometry.js';
+import { booleanOp, booleanSupported, booleanResultObject } from '../lib/boolean.js';
+import {
+  flattenPathPoints, simplifyPolyline, chaikinSmooth, pointsToBezierPoints, strokeOutlineContours,
+} from '../lib/pathops.js';
 
 const HISTORY_CAP = 100;
 export const clone = (v) => JSON.parse(JSON.stringify(v));
@@ -42,13 +46,24 @@ function reorder(list, ids, dir) {
   return next;
 }
 
+const DEFAULT_ARTBOARD = { id: 'art-0', w: 1080, h: 1080, bg: '#ffffff', name: 'Social 1080 × 1080' };
+
+// Objects without artboardId belong to the active artboard (runtime safety
+// net; migration assigns artboardId on every load).
+const onActiveArtboard = (o, activeId) => !o.artboardId || o.artboardId === activeId;
+
 export const useStore = create((set, get) => ({
   objects: [],
   selection: [],
   tool: 'select',
   zoom: 1,
   pan: { x: 40, y: 40 },
-  artboard: { w: 1080, h: 1080, bg: '#ffffff', name: 'Social 1080 × 1080' },
+  // Multi-artboard model (Phase 2). `artboard` is kept in sync with the
+  // active entry so existing readers (TopBar, CanvasArea, align) work
+  // unchanged; artboards[] is the source of truth.
+  artboards: [DEFAULT_ARTBOARD],
+  activeArtboardId: DEFAULT_ARTBOARD.id,
+  artboard: DEFAULT_ARTBOARD,
   grid: true,
   snap: true,
   style: defaultStyle(),
@@ -75,7 +90,82 @@ export const useStore = create((set, get) => ({
   setTool: (tool) => set({ tool, penDraft: null, editingTextId: null }),
   setZoom: (zoom) => set({ zoom: Math.min(8, Math.max(0.1, zoom)) }),
   setPan: (pan) => set({ pan }),
-  setArtboard: (artboard) => set({ artboard }),
+  // Patch the ACTIVE artboard entry (and the synced `artboard` field).
+  // Accepts a full artboard object or a partial patch.
+  setArtboard: (patch) => set((s) => {
+    const artboards = s.artboards.map((a) => (a.id === s.activeArtboardId ? { ...a, ...patch } : a));
+    return { artboards, artboard: artboards.find((a) => a.id === s.activeArtboardId) };
+  }),
+  getActiveArtboard: () => {
+    const s = get();
+    return s.artboards.find((a) => a.id === s.activeArtboardId) || s.artboards[0];
+  },
+  getActiveObjects: () => {
+    const s = get();
+    return s.objects.filter((o) => onActiveArtboard(o, s.activeArtboardId));
+  },
+  setActiveArtboard: (id) => set((s) => {
+    if (!s.artboards.some((a) => a.id === id)) return {};
+    return {
+      activeArtboardId: id,
+      artboard: s.artboards.find((a) => a.id === id),
+      selection: [],
+      selectedGuideId: null,
+    };
+  }),
+  addArtboard: (preset) => set((s) => {
+    const art = {
+      id: uid(),
+      name: preset?.name || `Artboard ${s.artboards.length + 1}`,
+      w: preset?.w || 1080,
+      h: preset?.h || 1080,
+      bg: preset?.bg || '#ffffff',
+    };
+    return {
+      artboards: [...s.artboards, art],
+      activeArtboardId: art.id,
+      artboard: art,
+      selection: [],
+    };
+  }),
+  duplicateArtboard: () => set((s) => {
+    const src = s.artboards.find((a) => a.id === s.activeArtboardId) || s.artboards[0];
+    const copy = { ...src, id: uid(), name: `${src.name} copy` };
+    const copies = s.objects
+      .filter((o) => onActiveArtboard(o, s.activeArtboardId))
+      .map((o) => {
+        const c = clone(o);
+        c.id = uid();
+        c.artboardId = copy.id;
+        if (c.type === 'group') c.children = c.children.map((ch) => ({ ...ch, id: uid() }));
+        return c;
+      });
+    return {
+      artboards: [...s.artboards, copy],
+      activeArtboardId: copy.id,
+      artboard: copy,
+      objects: [...s.objects, ...copies],
+      selection: [],
+    };
+  }),
+  deleteArtboard: () => set((s) => {
+    if (s.artboards.length <= 1) return {};
+    const remaining = s.artboards.filter((a) => a.id !== s.activeArtboardId);
+    return {
+      artboards: remaining,
+      activeArtboardId: remaining[0].id,
+      artboard: remaining[0],
+      objects: s.objects.filter((o) => !onActiveArtboard(o, s.activeArtboardId)),
+      selection: [],
+    };
+  }),
+  renameArtboard: (id, name) => set((s) => {
+    const artboards = s.artboards.map((a) => (a.id === id ? { ...a, name } : a));
+    return {
+      artboards,
+      artboard: artboards.find((a) => a.id === s.activeArtboardId),
+    };
+  }),
   toggleGrid: () => set((s) => ({ grid: !s.grid })),
   toggleSnap: () => set((s) => ({ snap: !s.snap })),
   setStyle: (patch) => set((s) => ({ style: { ...s.style, ...patch } })),
@@ -114,8 +204,10 @@ export const useStore = create((set, get) => ({
   },
 
   addObject: (obj, selectIt = true) => {
-    get().act((list) => [...list, obj]);
-    if (selectIt) set({ selection: [obj.id] });
+    // New artwork always lands on the active artboard.
+    const withBoard = obj.artboardId ? obj : { ...obj, artboardId: get().activeArtboardId };
+    get().act((list) => [...list, withBoard]);
+    if (selectIt) set({ selection: [withBoard.id] });
   },
 
   deleteSelected: () => {
@@ -249,15 +341,185 @@ export const useStore = create((set, get) => ({
     set({ objects: next, future: future.slice(1), past: [...past, clone(objects)].slice(-HISTORY_CAP), selection: [] });
   },
 
-  newDocument: (artboard, objects) => set({
-    artboard, objects, selection: [], past: [], future: [], penDraft: null, editingTextId: null,
-    guides: [], selectedGuideId: null,
-  }),
+  // Kept signature for callers (templates, New button): a single artboard
+  // plus objects becomes a one-artboard v2 document.
+  newDocument: (artboard, objects) => {
+    const doc = migrateDocument({ artboard, objects });
+    set({
+      artboards: doc.artboards, activeArtboardId: doc.activeArtboardId,
+      artboard: doc.artboards[0], objects: doc.objects,
+      selection: [], past: [], future: [], penDraft: null, editingTextId: null,
+      guides: [], selectedGuideId: null,
+    });
+  },
 
-  loadDocument: (doc) => set({
-    artboard: doc.artboard, objects: doc.objects, selection: [], past: [], future: [], penDraft: null, editingTextId: null,
-    guides: [], selectedGuideId: null,
-  }),
+  // Accepts v1 ({artboard, objects}) and v2 ({artboards, ...}) documents;
+  // v1 files open as a one-artboard document (backward compatible).
+  loadDocument: (doc) => {
+    const migrated = migrateDocument(doc);
+    set({
+      artboards: migrated.artboards, activeArtboardId: migrated.activeArtboardId,
+      artboard: migrated.artboards.find((a) => a.id === migrated.activeArtboardId),
+      objects: migrated.objects,
+      selection: [], past: [], future: [], penDraft: null, editingTextId: null,
+      guides: [], selectedGuideId: null,
+    });
+  },
+
+  // ---- Phase 2 actions (all undoable via act()) -------------------------
+  booleanSelected: (op) => {
+    const s = get();
+    const sel = s.getSelectedObjects();
+    if (sel.length < 2 || !sel.every(booleanSupported)) return false;
+    const result = booleanOp(op, sel);
+    if (!result) return false;
+    const out = booleanResultObject(result, sel[0]);
+    if (!out) return false;
+    out.artboardId = sel[0].artboardId || s.activeArtboardId;
+    const ids = new Set(sel.map((o) => o.id));
+    s.act((list) => [...list.filter((o) => !ids.has(o.id)), out]);
+    set({ selection: [out.id] });
+    return true;
+  },
+
+  outlineStrokeSelected: () => {
+    const s = get();
+    const sel = s.getSelectedObjects();
+    if (sel.length === 0) return false;
+    let changed = false;
+    s.act((list) => list.map((o) => {
+      if (!s.selection.includes(o.id)) return o;
+      const contours = strokeOutlineContours(o);
+      if (!contours) return o;
+      changed = true;
+      return {
+        ...o,
+        type: 'path',
+        points: contours[0],
+        contours,
+        closed: true,
+        fill: o.stroke,
+        fillType: 'solid',
+        gradient: undefined,
+        stroke: 'none',
+        strokeWidth: 0,
+      };
+    }));
+    return changed;
+  },
+
+  simplifySelected: (tolerance) => {
+    const s = get();
+    const sel = s.getSelectedObjects();
+    if (sel.length !== 1) return false;
+    const o = sel[0];
+    if (o.type !== 'path' && o.type !== 'brush') return false;
+    let next = null;
+    if (o.type === 'path') {
+      let flat = flattenPathPoints(o.points, !!o.closed);
+      if (o.closed && flat.length > 2) flat = [...flat, flat[0]];
+      let simple = simplifyPolyline(flat, tolerance);
+      if (o.closed && simple.length > 1) simple = simple.slice(0, -1);
+      if (simple.length < 2) return false;
+      next = {
+        ...o,
+        points: simple.map((p) => ({ x: p.x, y: p.y, h1: null, h2: null })),
+        contours: undefined,
+      };
+    } else {
+      const simple = simplifyPolyline(o.raw || [], tolerance);
+      if (simple.length < 2) return false;
+      next = { ...o, raw: simple };
+    }
+    s.updateObject(o.id, next);
+    return true;
+  },
+
+  smoothSelected: () => {
+    const s = get();
+    const sel = s.getSelectedObjects();
+    if (sel.length !== 1) return false;
+    const o = sel[0];
+    if (o.type === 'path') {
+      const anchors = o.points.map((p) => ({ x: p.x, y: p.y }));
+      const smoothed = chaikinSmooth(anchors, !!o.closed, 2);
+      if (smoothed.length < 2) return false;
+      s.updateObject(o.id, {
+        points: pointsToBezierPoints(smoothed, !!o.closed),
+        contours: undefined,
+      });
+      return true;
+    }
+    if (o.type === 'brush') {
+      const smoothed = chaikinSmooth(o.raw || [], false, 2);
+      if (smoothed.length < 2) return false;
+      s.updateObject(o.id, { raw: smoothed });
+      return true;
+    }
+    return false;
+  },
+
+  attachTextToPath: () => {
+    const s = get();
+    const sel = s.getSelectedObjects();
+    if (sel.length !== 2) return false;
+    const text = sel.find((o) => o.type === 'text');
+    const path = sel.find((o) => o.type === 'path');
+    if (!text || !path) return false;
+    s.updateObject(text.id, { pathId: path.id });
+    return true;
+  },
+
+  detachTextFromPath: () => {
+    const s = get();
+    const sel = s.getSelectedObjects();
+    const text = sel.find((o) => o.type === 'text' && o.pathId);
+    if (!text) return false;
+    s.act((list) => list.map((o) => {
+      if (o.id !== text.id) return o;
+      const next = { ...o };
+      delete next.pathId;
+      return next;
+    }));
+    return true;
+  },
+
+  // Topmost selected object becomes the mask; the rest get clipped by it.
+  createMask: () => {
+    const s = get();
+    const sel = s.getSelectedObjects();
+    if (sel.length < 2) return false;
+    const mask = sel[sel.length - 1];
+    const others = new Set(sel.slice(0, -1).map((o) => o.id));
+    s.act((list) => list.map((o) => {
+      if (o.id === mask.id) return { ...o, isMask: true };
+      if (others.has(o.id)) return { ...o, clipId: mask.id };
+      return o;
+    }));
+    set({ selection: [mask.id] });
+    return true;
+  },
+
+  releaseMask: () => {
+    const s = get();
+    const masks = s.getSelectedObjects().filter((o) => o.isMask);
+    if (masks.length === 0) return false;
+    const maskIds = new Set(masks.map((o) => o.id));
+    s.act((list) => list.map((o) => {
+      if (maskIds.has(o.id)) {
+        const next = { ...o };
+        delete next.isMask;
+        return next;
+      }
+      if (o.clipId && maskIds.has(o.clipId)) {
+        const next = { ...o };
+        delete next.clipId;
+        return next;
+      }
+      return o;
+    }));
+    return true;
+  },
 
   getSelectedObjects: () => {
     const ids = new Set(get().selection);

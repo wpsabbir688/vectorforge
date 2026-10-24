@@ -86,7 +86,7 @@ the 2026-10-24 blank-page outage was exactly this class of bug).
 ## Recommended order
 
 1. **Phase 1 (reliability + quick wins, ~1–2 weeks):** ✅ DONE 2026-10-24 — error boundary, Playwright smoke tests, CI, SVG import (paste), rulers/guides, radial gradients, shortcut help, meta/OG. Custom domain decision still open (user's call).
-2. **Phase 2 (pro editing, ~3–5 weeks):** booleans, outline stroke, simplify, smart guides, text on path + masks, multi-artboard, asset export panel.
+2. **Phase 2 (pro editing, ~3–5 weeks):** ✅ DONE 2026-10-24 — booleans (Unite/Subtract/Intersect/Exclude via polygon-clipping, destructive but undoable), outline stroke, simplify + smooth, smart guides (move + resize; spacing hints not included), text on path + masks (clipPath/textPath, top-level objects only), multi-artboard (add/duplicate/delete/rename/switch, v1 files migrate), asset export panel (multi-size PNG + SVG + presets; no PDF, no zip). Tests 84/84, E2E 5/5, live smoke test still to run by parent. Still open from P0: trace Web Worker, traced-doc perf, autosave safety.
 3. **Phase 3 (platform):** PWA, i18n, touch support, components/symbols, templates expansion, onboarding tour.
 4. **Later / only if validated by users:** collaboration, cloud save, plugin API, gradient mesh (high effort, niche demand).
 

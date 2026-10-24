@@ -1,12 +1,14 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import {
   FilePlus2, FolderOpen, Save, LayoutTemplate, Undo2, Redo2, ZoomIn, ZoomOut,
   Maximize, Download, ImageDown, ClipboardCopy, ImagePlus, Grid3x3, Magnet,
+  Plus, CopyPlus, Trash2, Pencil,
 } from 'lucide-react';
 import { useStore } from '../store/useStore.js';
 import { ARTBOARD_PRESETS } from '../lib/templates.js';
 import { exportSvg, exportPng, copySvgToClipboard, downloadFile } from '../lib/export.js';
 import { parseDocument } from '../lib/geometry.js';
+import AssetExportPanel from './AssetExportPanel.jsx';
 
 function BarButton({ title, onClick, disabled, children, active }) {
   return (
@@ -27,6 +29,16 @@ export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts }) {
   const setPan = useStore((s) => s.setPan);
   const artboard = useStore((s) => s.artboard);
   const setArtboard = useStore((s) => s.setArtboard);
+  const artboards = useStore((s) => s.artboards);
+  const activeArtboardId = useStore((s) => s.activeArtboardId);
+  const setActiveArtboard = useStore((s) => s.setActiveArtboard);
+  const addArtboard = useStore((s) => s.addArtboard);
+  const duplicateArtboard = useStore((s) => s.duplicateArtboard);
+  const deleteArtboard = useStore((s) => s.deleteArtboard);
+  const renameArtboard = useStore((s) => s.renameArtboard);
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [showAssets, setShowAssets] = useState(false);
   const grid = useStore((s) => s.grid);
   const toggleGrid = useStore((s) => s.toggleGrid);
   const snap = useStore((s) => s.snap);
@@ -64,7 +76,7 @@ export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts }) {
 
   const getDoc = () => {
     const s = useStore.getState();
-    return { app: 'vectorforge', version: 1, artboard: s.artboard, objects: s.objects };
+    return { app: 'vectorforge', version: 2, artboards: s.artboards, activeArtboardId: s.activeArtboardId, objects: s.objects };
   };
 
   const doSave = () => {
@@ -84,15 +96,16 @@ export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts }) {
     reader.readAsText(file);
   };
 
+  // Single-artboard quick exports always use the ACTIVE artboard.
   const doExportSvg = () => {
     const s = useStore.getState();
-    downloadFile('vectorforge.svg', exportSvg(s.artboard, s.objects), 'image/svg+xml');
+    downloadFile('vectorforge.svg', exportSvg(s.getActiveArtboard(), s.getActiveObjects()), 'image/svg+xml');
   };
 
   const doExportPng = async (scale) => {
     const s = useStore.getState();
     try {
-      await exportPng(s.artboard, s.objects, scale);
+      await exportPng(s.getActiveArtboard(), s.getActiveObjects(), scale);
     } catch (err) {
       alert(err.message);
     }
@@ -101,7 +114,7 @@ export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts }) {
   const doCopySvg = async () => {
     const s = useStore.getState();
     try {
-      await copySvgToClipboard(s.artboard, s.objects);
+      await copySvgToClipboard(s.getActiveArtboard(), s.getActiveObjects());
       alert('SVG copied to clipboard.');
     } catch {
       alert('Clipboard copy failed in this browser.');
@@ -147,14 +160,42 @@ export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts }) {
       <BarButton title="Export SVG" onClick={doExportSvg}><Download size={16} /> SVG</BarButton>
       <BarButton title="Export PNG at 2x" onClick={() => doExportPng(2)}><ImageDown size={16} /> PNG</BarButton>
       <BarButton title="Copy SVG to clipboard" onClick={doCopySvg}><ClipboardCopy size={16} /></BarButton>
+      <BarButton title="Export the active artboard (or selection) at multiple sizes" onClick={() => setShowAssets(true)}><ImageDown size={16} /> Assets</BarButton>
       <div className="mx-1 h-6 w-px bg-[#444]" />
       <BarButton title="Toggle grid" onClick={toggleGrid} active={grid}><Grid3x3 size={16} /></BarButton>
       <BarButton title="Toggle snap to grid" onClick={toggleSnap} active={snap}><Magnet size={16} /></BarButton>
+      {/* Artboard switcher: switch / add / duplicate / delete / rename */}
+      {renaming ? (
+        <input
+          autoFocus
+          value={nameDraft}
+          onChange={(e) => setNameDraft(e.target.value)}
+          onBlur={() => { if (nameDraft.trim()) renameArtboard(activeArtboardId, nameDraft.trim()); setRenaming(false); }}
+          onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') setRenaming(false); e.stopPropagation(); }}
+          className="ml-1 h-8 w-36 rounded-md border border-[#444] bg-[#2a2a2a] px-2 text-xs text-white outline-none"
+        />
+      ) : (
+        <select
+          data-testid="artboard-select"
+          value={activeArtboardId}
+          onChange={(e) => setActiveArtboard(e.target.value)}
+          className="ml-1 h-8 max-w-44 rounded-md border border-[#444] bg-[#2a2a2a] px-2 text-xs text-gray-200 outline-none"
+        >
+          {artboards.map((a) => (
+            <option key={a.id} value={a.id}>{a.name} ({a.w}×{a.h})</option>
+          ))}
+        </select>
+      )}
+      <BarButton title="Add artboard" onClick={() => addArtboard({ name: `Artboard ${artboards.length + 1}`, w: 1080, h: 1080, bg: '#ffffff' })}><Plus size={16} /></BarButton>
+      <BarButton title="Duplicate active artboard (with its objects)" onClick={duplicateArtboard}><CopyPlus size={16} /></BarButton>
+      <BarButton title="Delete active artboard" onClick={() => { if (artboards.length > 1 && confirm(`Delete artboard "${artboard.name}" and its objects?`)) deleteArtboard(); }} disabled={artboards.length <= 1}><Trash2 size={16} /></BarButton>
+      <BarButton title="Rename active artboard" onClick={() => { setNameDraft(artboard.name); setRenaming(true); }}><Pencil size={16} /></BarButton>
       <select
+        title="Resize active artboard to a preset"
         value={artboard.name}
         onChange={(e) => {
           const p = ARTBOARD_PRESETS.find((x) => x.name === e.target.value);
-          if (p) setArtboard({ ...artboard, w: p.w, h: p.h, name: p.name });
+          if (p) setArtboard({ w: p.w, h: p.h, name: p.name });
         }}
         className="ml-1 h-8 rounded-md border border-[#444] bg-[#2a2a2a] px-2 text-xs text-gray-200 outline-none"
       >
@@ -167,10 +208,11 @@ export default function TopBar({ onTraceClick, onImportSvg, onShowShortcuts }) {
         <input
           type="color"
           value={artboard.bg}
-          onChange={(e) => setArtboard({ ...artboard, bg: e.target.value })}
+          onChange={(e) => setArtboard({ bg: e.target.value })}
           className="h-7 w-8 cursor-pointer rounded border border-[#444] bg-transparent"
         />
       </label>
+      {showAssets && <AssetExportPanel onClose={() => setShowAssets(false)} />}
     </div>
   );
 }
