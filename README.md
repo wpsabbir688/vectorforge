@@ -189,36 +189,47 @@ Blank, Logo mark, Social post, Business card — plus **Icon set**
 (12 icons), **Poster** (A4), **YouTube thumbnail** (1280×720), and
 **Infographic** (1080×1350), all built from existing object types.
 
-### Image Trace (new in v1)
-Turn a PNG/JPG into real editable vector objects:
+### Image Trace (new in v1, Round A quick wins 2026-10-25)
+Turn a PNG, JPG or WebP into real editable vector objects:
 1. Click **Trace** in the top bar, or drag & drop an image onto the canvas.
-2. Choose options and press **Trace**, then preview and **Add to canvas**.
+2. Choose options and press **Trace**, then compare and **Add to canvas**.
 3. The result lands as a **group of one path per traced region** — selectable,
    movable, resizable, recolorable, deletable, and exported with everything
    else to SVG/PNG.
 
 Options:
-- **Mode:** Color (2–16 colors) or Black & White (luminance threshold).
+- **Preset:** Logo, Line art, Sketch, Photo, Comic — each fills the controls
+  with a sensible combination; tweaking any control switches back to Custom.
+- **Quality:** Standard (1024px max edge) or High (2048px max edge).
+- **Mode:** Color (2–16 colors) or Black & White (global threshold, or
+  adaptive local-mean threshold for unevenly lit images).
 - **Detail / smoothing:** higher = more faithful to the source.
 - **Noise removal:** ignores tiny paths (higher = cleaner, fewer fragments).
 - **Background:** Transparent (drops near-white layers), Keep white, or Keep
   all layers.
+- **Enhance before tracing:** contrast boost, denoise (soft blur), sharpen
+  edges — pure pixel steps that run inside the worker.
 - **Keep original as reference:** optionally adds the source image as a locked,
   faded reference layer under the trace.
 
 Implementation: [imagetracerjs](https://github.com/jankovicsandras/imagetracerjs)
-(color quantization + layered path tracing). Large uploads are downscaled to
-1024px on the long edge before tracing, and tracing runs after a UI yield with
-a visible busy state so the page never freezes (no Web Worker — the library
-runs synchronously, and the downscale keeps it fast).
+(color quantization + layered path tracing). Tracing runs in a **Web Worker**
+(`src/workers/traceWorker.js`), so the studio stays responsive during a trace
+and the modal offers a **Cancel** button that terminates the worker without
+touching the document. Only image decode, canvas downscale and the preview
+data URL stay on the main thread (they need the DOM). If Workers are
+unavailable, the modal falls back to main-thread tracing once and says so in
+the result line. The result step shows an **original vs traced compare
+slider** (drag to wipe between the two); the compare image is display-only
+and is never inserted unless "Keep original as reference" is on.
 
 **Honest limit:** tracing quality depends on image contrast and simplicity.
 Clean logos, icons, and line art trace sharply. Photos come out
 stylized/posterized — that is inherent to vector tracing, not a bug.
 
-Measured on this build machine (Node, synthetic 1024×1024 banded test image,
-8 colors): ~660 ms per trace. Real photos with more detail take longer, but
-the downscale cap keeps it in the same ballpark.
+Measured on this build machine (Node, synthetic circle/bar/bands test image,
+8 colors): ~480 ms at 1024×1024, ~1720 ms at 2048×2048. Real photos with more
+detail take longer; the worker keeps the UI alive while they run.
 
 ### SVG import
 Bring existing vector art in as one centered, selected group:
@@ -333,9 +344,9 @@ layer search, zoom to selection, custom canvas size). GitHub Actions
 (`.github/workflows/ci.yml`) runs unit tests, the production build, and the
 Playwright suite on every push/PR to main.
 
-Current result: **138/138 unit tests pass** (27 geometry + 9 trace + 14 SVG
+Current result: **152/152 unit tests pass** (27 geometry + 9 trace + 14 Round A trace + 14 SVG
 import + 5 gradients + 9 booleans + 12 path ops + 8 artboards + 18 Phase 3 +
-12 EPS + 4 PDF + 5 SVG optimizer + 15 Phase 5) and **22/22 Playwright tests
+12 EPS + 4 PDF + 5 SVG optimizer + 15 Phase 5) and **27/27 Playwright tests
 pass**.
 
 ## Changelog
@@ -374,6 +385,25 @@ pass**.
   Phase 4's 492 KB — inside the 25% budget). Honest limits: pinch on real
   hardware still untested; P0 leftovers (trace Web Worker, traced-doc perf,
   autosave safety) still open; custom domain still the user's call.
+
+### Round A — Image Trace quick wins (2026-10-25)
+- Trace runs in a **Web Worker** (new `src/workers/traceWorker.js` chunk);
+  the modal stays responsive and a **Cancel** button terminates the worker
+  without touching the document. Main-thread fallback once if Workers are
+  unavailable, noted in the result line.
+- **Quality:** Standard (1024px) vs High (2048px) max edge; measured
+  ~480 ms at 1024×1024 vs ~1720 ms at 2048×2048 on the build machine.
+- **Preprocessing** (pure functions, in-worker): contrast boost, denoise
+  blur, sharpen, plus **adaptive threshold** for B&W (local-mean via
+  integral image) for unevenly lit images.
+- **Presets:** Logo, Line art, Sketch, Photo, Comic — each fills the
+  controls; tweaking returns to Custom.
+- **Compare slider** in the result step: drag to wipe original vs traced
+  (display-only; never inserted unless "Keep original as reference" is on).
+- **WebP input** accepted alongside PNG/JPEG.
+- Tests 152/152, E2E 27/27 (5 new trace specs), build passes. P0 "trace Web
+  Worker" is now done; still open: traced-doc perf, autosave safety,
+  vtracer migration, custom domain (user's call).
 
 ### Phase 4 (2026-10-24) — production export
 - EPS export: valid Encapsulated PostScript per artboard (header,

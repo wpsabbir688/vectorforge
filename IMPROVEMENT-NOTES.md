@@ -12,6 +12,13 @@ Still open from the original Phase 1 list: the **custom domain decision**
 (deliberately left to the user — no domain was picked or configured).
 Still open P0 items, not in Phase 1 scope: Web Worker tracing (P0 #4),
 traced-document performance (P0 #5), autosave safety (P0 #6).
+UPDATE 2026-10-25 (Round A Image Trace quick wins): P0 #4 DONE — tracing
+runs in a Web Worker with progress state + Cancel (terminates the worker,
+document untouched), quality Standard/High (1024/2048px), preprocessing
+(contrast/denoise/sharpen + adaptive threshold), presets (Logo/Line art/
+Sketch/Photo/Comic), original-vs-traced compare slider, WebP input. Tests
+152/152, E2E 27/27. Still open: traced-doc perf (P0 #5), autosave safety
+(P0 #6); vtracer migration remains the big quality jump for a later round.
 Verification: 55/55 unit tests, 3/3 Playwright smoke tests (run locally in
 headless Chromium and in CI), production build passes (~349 KB JS).
 **Reviewer stance:** what a professional vector-tool user (Illustrator / Figma / Inkscape level)
@@ -42,7 +49,7 @@ the 2026-10-24 blank-page outage was exactly this class of bug).
 | 1 | **React error boundary** around the canvas + panels | One render crash currently blanks the whole app (proven 2026-10-24). A boundary shows "something broke — recover" instead of a dead page, with a reset button. | S |
 | 2 | **Playwright E2E smoke tests** (load, draw, trace, export) in CI | v1's tests are geometry-only; no test ever rendered the app. This is how the missing-import bug shipped. | M |
 | 3 | **GitHub Actions CI**: build + tests on every push | Catches build/test breaks before Netlify deploys them. | S |
-| 4 | **Image Trace in a Web Worker** | Trace currently runs on the main thread (only a `setTimeout` yield). Large images freeze the UI; a worker keeps the editor responsive. | M |
+| 4 | **Image Trace in a Web Worker** ✅ DONE 2026-10-25 (Round A) | Trace ran on the main thread (only a `setTimeout` yield). Now in `src/workers/traceWorker.js` with progress state + Cancel; main-thread fallback once if Workers are unavailable. | M |
 | 5 | **Performance for traced documents** | Traced groups can hold hundreds of paths; SVG DOM slows down fast. Mitigations: memoize shape renders, simplify traced output, warn on very large traces. | M |
 | 6 | **Autosave safety**: quota handling + "recovered document" notice | Silent restore is fine until storage is full or corrupt; surface it instead of losing work. | S |
 
