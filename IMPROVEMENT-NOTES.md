@@ -19,6 +19,8 @@ document untouched), quality Standard/High (1024/2048px), preprocessing
 Sketch/Photo/Comic), original-vs-traced compare slider, WebP input. Tests
 152/152, E2E 27/27. Still open: traced-doc perf (P0 #5), autosave safety
 (P0 #6); vtracer migration remains the big quality jump for a later round.
+Cursor fix (same round): pen/shape/brush/eraser → crosshair, eyedropper →
+cell, hand → grab/grabbing mid-pan; 2 new cursor E2E specs (29/29 total).
 Verification: 55/55 unit tests, 3/3 Playwright smoke tests (run locally in
 headless Chromium and in CI), production build passes (~349 KB JS).
 **Reviewer stance:** what a professional vector-tool user (Illustrator / Figma / Inkscape level)

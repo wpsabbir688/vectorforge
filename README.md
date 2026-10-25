@@ -346,7 +346,7 @@ Playwright suite on every push/PR to main.
 
 Current result: **152/152 unit tests pass** (27 geometry + 9 trace + 14 Round A trace + 14 SVG
 import + 5 gradients + 9 booleans + 12 path ops + 8 artboards + 18 Phase 3 +
-12 EPS + 4 PDF + 5 SVG optimizer + 15 Phase 5) and **27/27 Playwright tests
+12 EPS + 4 PDF + 5 SVG optimizer + 15 Phase 5) and **29/29 Playwright tests
 pass**.
 
 ## Changelog
@@ -404,6 +404,11 @@ pass**.
 - Tests 152/152, E2E 27/27 (5 new trace specs), build passes. P0 "trace Web
   Worker" is now done; still open: traced-doc perf, autosave safety,
   vtracer migration, custom domain (user's call).
+- **Cursor fix (same round):** every tool now shows a fitting canvas
+  cursor — pen + all shape tools + brush + eraser use crosshair (was plain
+  arrow), eyedropper uses `cell` (was `copy`), hand shows `grab` and
+  `grabbing` mid-pan (wired to the pan session). Selection-handle cursors
+  unchanged. Covered by 2 new cursor E2E specs (29/29 total).
 
 ### Phase 4 (2026-10-24) — production export
 - EPS export: valid Encapsulated PostScript per artboard (header,

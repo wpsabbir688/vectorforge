@@ -934,12 +934,26 @@ export default function CanvasArea({ onImageDrop }) {
   const editingBox = editingObj ? bboxOf(editingObj) : null;
 
   const cursorForTool = () => {
+    // While a pan drag is in progress (hand tool, middle button, or
+    // space-pan), show the grabbing hand. sessionRef is a ref, but pan
+    // moves call setPan in the store, so this component re-renders on
+    // every move and the cursor updates live; pointer-up clears the
+    // session and re-renders back to the tool cursor.
+    if (sessionRef.current?.kind === 'pan') return 'grabbing';
     switch (tool) {
       case 'hand': return 'grab';
-      case 'pen': return 'crosshair';
+      case 'pen':
+      case 'rect':
+      case 'ellipse':
+      case 'line':
+      case 'polygon':
+      case 'star':
+      case 'brush':
+      case 'eraser': return 'crosshair';
       case 'text': return 'text';
-      case 'eyedropper': return 'copy';
-      default: return 'default';
+      // CSS has no eyedropper cursor; 'cell' is the standard picker cursor.
+      case 'eyedropper': return 'cell';
+      default: return 'default'; // select, direct-select
     }
   };
 
