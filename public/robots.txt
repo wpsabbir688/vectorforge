@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://delicate-kheer-1bc786.netlify.app/sitemap.xml
